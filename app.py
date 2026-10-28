@@ -179,3 +179,4 @@ with tab_notes:
     for limitation in result["limitations"]:
         st.write("•", limitation)
     st.warning("Do not use these outputs for construction without verification and approval by the responsible structural engineer.")
+
