@@ -415,3 +415,53 @@ def draw_structural_result_annotations(inputs: CulvertInputs, rows: list[dict],
              "UNVERIFIED ANNOTATION  •  Do not use for section design, safety checks or construction",
              fontsize=9, ha="center", color="#a3342a")
     return fig
+
+
+def draw_frame_solver_results(inputs, frame: dict):
+    """Display MODELLED frame deformation and end-action magnitudes.
+
+    This is NOT an externally verified force envelope. Displacements shown
+    at amplified scale and member-end actions in the model local-axis sense.
+    """
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import FancyArrowPatch
+    fig,(ax,bar)=plt.subplots(1,2,figsize=(13.5,6.2), gridspec_kw={"width_ratios":[1.2,1]})
+    nodes=frame["nodes"]
+    max_dim=max(frame["frame_width_m"],frame["frame_height_m"])
+    max_def=max(max(abs(n["ux_mm"]), abs(n["uy_mm"])) for n in nodes)/1000
+    amp=min(150.0,0.13*max_dim/max(max_def,1e-10))
+    members={"Bottom slab":"#2d637b","Top slab":"#2d637b","Left wall":"#50786c","Right wall":"#50786c"}
+    for el in frame["elements"]:
+        a=nodes[el["node_start"]];b=nodes[el["node_end"]]
+        color=members[el["member"]]
+        ax.plot([a["x_m"],b["x_m"]],[a["y_m"],b["y_m"]], color=color,lw=2.1,alpha=.8)
+        ax.plot([a["x_m"]+amp*a["ux_mm"]/1000,b["x_m"]+amp*b["ux_mm"]/1000],
+                [a["y_m"]+amp*a["uy_mm"]/1000,b["y_m"]+amp*b["uy_mm"]/1000],
+                color="#d57a24",lw=1.7,alpha=.9)
+    for spring in frame["foundation_spring_reactions"]:
+        j=spring["node"]
+        n=nodes[j]
+        ax.plot(n["x_m"],n["y_m"]-0.10,"^",ms=7,color="#49606f")
+    ax.set_aspect("equal",adjustable="box")
+    ax.set_xlim(-.4,frame["frame_width_m"]+.4)
+    ax.set_ylim(-.45,frame["frame_height_m"]+.4)
+    ax.grid(alpha=.17)
+    ax.set_xlabel("x (m)"); ax.set_ylabel("y (m)")
+    ax.set_title(f"2D frame model · orange deformed ×{amp:.0f}",fontsize=12)
+    summary=frame["member_action_summary"]
+    names=[v["member"] for v in summary]
+    y=range(len(names))
+    import numpy as np
+    moments=np.array([v["max_abs_moment_knm"] for v in summary])
+    shears=np.array([v["max_abs_shear_kn"] for v in summary])
+    bar.barh([i-.20 for i in y], moments,height=.38,label="max |end M| (kN.m)",color="#d57a24")
+    bar.barh([i+.20 for i in y], shears,height=.38,label="max |end V| (kN)",color="#2d637b")
+    bar.set_yticks(list(y),names)
+    bar.invert_yaxis();bar.grid(axis="x",alpha=.2)
+    bar.set_xlabel("End-action magnitude (units differ — see legend)")
+    bar.legend(loc="lower right",fontsize=8)
+    bar.set_title("Local member-end results (NOT design envelope)",fontsize=11)
+    fig.suptitle("STAGE 4B — EXPERIMENTAL IN-APP FRAME SOLVER · NOT APPROVED FOR CONSTRUCTION",
+                 fontsize=12,weight="bold")
+    fig.tight_layout(rect=(0,0,1,.95))
+    return fig

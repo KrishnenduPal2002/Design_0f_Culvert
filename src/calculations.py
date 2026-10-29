@@ -25,6 +25,7 @@ from .traffic_loads import BrakingInputs, braking_cases
 from .vehicle_loading import VehicleLoadingInputs, calculate_axle_dispersion, scan_lead_axle_positions
 from .load_combinations import CombinationInputs, calculate_component_factors
 from .structural_analysis import is_original_geometry, build_structural_analysis_snapshot
+from .frame_solver import FrameOptions, run_frame_analysis
 
 
 def calculate_preview(
@@ -34,6 +35,8 @@ def calculate_preview(
     vehicle_inputs: VehicleLoadingInputs | None = None,
     combination_inputs: CombinationInputs | None = None,
     structural_records: list[dict] | None = None,
+    frame_options: FrameOptions | None = None,
+    run_frame: bool = False,
 ) -> dict:
     """Return one consistent snapshot of Stages 1–3 for the Streamlit app.
 
@@ -116,6 +119,34 @@ def calculate_preview(
         "No in-app structural solver or direct STAAD connection; Stage 4 accepts "
         "engineer-mapped CSV force results for comparison only"
     )
+    if run_frame:
+        frame = run_frame_analysis(
+            inputs, earth, braking, vehicle_inputs or VehicleLoadingInputs(),
+            combination_inputs or CombinationInputs(), frame_options or FrameOptions(),
+        )
+        result["frame_solver"] = frame
+        result["earth_pressure"]["status"] = (
+            "Lateral soil/surcharge/cushion and vertical cover loads are applied to an "
+            "EXPERIMENTAL 2D frame using assumptions; NOT verified IRC/STAAD loads"
+        )
+        result["load_combinations"]["frame_solver_link"] = (
+            "Selected component factors are applied together to the frame load vector; "
+            "the model is solved once for combined actions. NOT an approved IRC combination."
+        )
+        result["structural_design_status"] = (
+            "IN-APP 2D FRAME PROTOTYPE SOLVED — NOT VALIDATED FOR DESIGN"
+        )
+        result["limitations"] = [
+            "A real Python 2D frame solver is implemented but NOT STAAD; no direct STAAD connection or independent verification",
+            "Stage 2 soil/surcharge/cushion loads are applied to model members using provisional location, datum and direction assumptions",
+            "Stage 3 axle strip loads and braking are applied to the model but vehicle patterns, lever arm and full loading rules are NOT validated",
+            "Applied factor sets yield combined frame actions, but are USER CONFIGURED, not code-approved ULS/SLS combinations",
+            "Frame member-end forces, moments and support reactions are calculated for this simplified model; no verified force envelopes",
+            "No certified ULS/SLS, crack width, shear or reinforcement capacity checks",
+            "No BBS, BOQ or construction-ready reinforcement details",
+            "No approval or certification of structural safety",
+            "Haunch mass is approximated at frame corners; haunch stiffness and barriers are omitted; design-note area discrepancy unresolved",
+        ]
     if structural_records:
         result["limitations"].append(
             "Imported member forces have not been checked for STAAD model validity, "

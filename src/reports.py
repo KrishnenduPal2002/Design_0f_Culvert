@@ -84,6 +84,27 @@ def to_csv_bytes(result: dict) -> bytes:
                              f"{row['case']} / {row['member']} / {row['location']} / {row['action']}",
                              row['difference'], row['unit']])
         writer.writerow(['structural_analysis', 'status', sa['status'], ''])
+    if "frame_solver" in result:
+        frame = result["frame_solver"]
+        writer.writerow(["frame_solver", "mode", frame["mode"], "NOT verified for design"])
+        for k in ("frame_width_m", "frame_height_m", "node_count", "element_count",
+                  "max_nodal_displacement_mm", "total_applied_fx_kn_per_m", "total_applied_fy_kn_per_m",
+                  "total_foundation_reaction_kn_per_m", "bottom_left_horizontal_anchor_reaction_kn_per_m",
+                  "equilibrium_residual_fx_kn_per_m", "equilibrium_residual_fy_kn_per_m"):
+            writer.writerow(["frame_solver", k, frame[k], "2D model of a 1m strip"])
+        for row in frame["load_components"]:
+            for key in ("factor", "unfactored_fx_kn", "unfactored_fy_kn", "applied_fx_kn", "applied_fy_kn"):
+                writer.writerow(["frame_load_" + row["component"], key, row[key], "kN per 1m strip (force); factor dimensionless"])
+        for row in frame["member_action_summary"]:
+            for key in ("max_abs_axial_kn", "max_abs_shear_kn", "max_abs_moment_knm"):
+                writer.writerow(["frame_member_" + row["member"], key, row[key], "kN or kN.m per 1m strip"])
+        for row in frame["member_end_actions"]:
+            for key in ("axial_kn", "shear_kn", "moment_knm"):
+                writer.writerow(["frame_element_" + str(row["element"]) + "_" + row["end"], key, row[key], "kN or kN.m per 1m strip"])
+        for row in frame["foundation_spring_reactions"]:
+            writer.writerow(["frame_foundation_spring", row["node"], row["vertical_reaction_kn_per_m"], "kN / 1m strip"])
+        for limitation in frame["limitations"]:
+            writer.writerow(["frame_solver_limit", "assumption", limitation, ""])
     writer.writerow(["status", "structural_design_status", result["structural_design_status"], ""])
     for i, limitation in enumerate(result.get("limitations", []), 1):
         writer.writerow(["limitations", i, limitation, ""])
