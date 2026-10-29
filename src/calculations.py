@@ -24,6 +24,7 @@ from .earth_pressure import (
 from .traffic_loads import BrakingInputs, braking_cases
 from .vehicle_loading import VehicleLoadingInputs, calculate_axle_dispersion, scan_lead_axle_positions
 from .load_combinations import CombinationInputs, calculate_component_factors
+from .structural_analysis import is_original_geometry, build_structural_analysis_snapshot
 
 
 def calculate_preview(
@@ -32,6 +33,7 @@ def calculate_preview(
     braking_inputs: BrakingInputs | None = None,
     vehicle_inputs: VehicleLoadingInputs | None = None,
     combination_inputs: CombinationInputs | None = None,
+    structural_records: list[dict] | None = None,
 ) -> dict:
     """Return one consistent snapshot of Stages 1–3 for the Streamlit app.
 
@@ -105,4 +107,18 @@ def calculate_preview(
         ],
     }
     result["load_combinations"] = calculate_component_factors(result, combination_inputs or CombinationInputs())
+    result["structural_analysis"] = build_structural_analysis_snapshot(
+        structural_records, reference_geometry_matches=is_original_geometry(inputs)
+    )
+    # Stage 4 imports user-mapped actions for inspection; it DOES NOT calculate
+    # structural response from any Stage 2/3 loads or replace a frame solver.
+    result["limitations"][0] = (
+        "No in-app structural solver or direct STAAD connection; Stage 4 accepts "
+        "engineer-mapped CSV force results for comparison only"
+    )
+    if structural_records:
+        result["limitations"].append(
+            "Imported member forces have not been checked for STAAD model validity, "
+            "sign convention, load combinations or structural safety"
+        )
     return result

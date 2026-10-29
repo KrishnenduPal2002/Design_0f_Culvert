@@ -1,4 +1,4 @@
-"""Export the combined Stage 1–3 *preliminary* calculation snapshot."""
+"""Export combined Stage 1–4 previews and imported structural-analysis references."""
 
 import csv
 import io
@@ -66,6 +66,24 @@ def to_csv_bytes(result: dict) -> bytes:
             writer.writerow(['factored_component',component['component'],
                              component['factored'],component['unit']])
         writer.writerow(['load_combinations','status',c['status'],''])
+    if 'structural_analysis' in result:
+        sa = result['structural_analysis']
+        writer.writerow(['structural_analysis', 'mode', sa['mode'], ''])
+        writer.writerow(['structural_analysis', 'reference_geometry_matches',
+                         sa['reference_geometry_matches'], ''])
+        for row in sa['reference']:
+            writer.writerow(['structural_note_reference',
+                             f"{row['case']} / {row['member']} / {row['location']} / {row['action']}",
+                             row['value'], row['unit']])
+        for row in sa['imported']:
+            writer.writerow(['structural_imported',
+                             f"{row['case']} / {row['member']} / {row['location']} / {row['action']}",
+                             row['value'], row['unit']])
+        for row in sa['comparison']:
+            writer.writerow(['structural_numerical_difference',
+                             f"{row['case']} / {row['member']} / {row['location']} / {row['action']}",
+                             row['difference'], row['unit']])
+        writer.writerow(['structural_analysis', 'status', sa['status'], ''])
     writer.writerow(["status", "structural_design_status", result["structural_design_status"], ""])
     for i, limitation in enumerate(result.get("limitations", []), 1):
         writer.writerow(["limitations", i, limitation, ""])
