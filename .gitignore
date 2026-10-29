@@ -1,0 +1,11 @@
+
+# Ignore Python-generated files
+__pycache__/
+*.py[cod]
+
+# Ignore Python virtual environment
+.venv/
+
+# Ignore environment variables and secrets
+.env
+.streamlit/secrets.toml
