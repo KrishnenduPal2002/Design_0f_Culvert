@@ -185,7 +185,12 @@ def stirrup_check(
     }
 
 
-def calculate_uls_design(inputs: Any, overrides: dict[int, dict[str, Any]] | None = None) -> dict:
+def calculate_uls_design(
+    inputs: Any,
+    overrides: dict[int, dict[str, Any]] | None = None,
+    *,
+    demand_source: str = "Original Excel ULS reference values (not live analysis)",
+) -> dict:
     """Calculate the valid single-cell rows of Excel Design!52:166.
 
     ``overrides`` maps Excel row numbers to editable input fields, e.g.
@@ -244,8 +249,8 @@ def calculate_uls_design(inputs: Any, overrides: dict[int, dict[str, Any]] | Non
     all_results = flex_rows + dist_rows + stirrup_rows
     review_count = sum(x['status'] == 'REVIEW REQUIRED' for x in all_results)
     return {
-        'source': 'Excel Design!52:166 cached reference values (original case)',
-        'demand_source': 'SOURCE WORKBOOK CACHED VALUES — NOT LIVE FRAME SOLVER',
+        'source': 'Original Excel ULS Design reference formulas and editable section inputs',
+        'demand_source': demand_source,
         'reference_geometry_matches': reference_geometry,
         'fck_mpa': fck, 'fy_mpa': fy,
         'flexure': flex_rows, 'distribution': dist_rows,
@@ -254,12 +259,12 @@ def calculate_uls_design(inputs: Any, overrides: dict[int, dict[str, Any]] | Non
         'skipped_nonapplicable_rows': ref['not_applicable'],
         'reference_warnings': ref['warnings'],
         'status': (
-            'REFERENCE-CASE CALCULATIONS ONLY — ENGINEER VERIFICATION REQUIRED'
+            'ULS SECTION ARITHMETIC ONLY — ENGINEER VERIFICATION REQUIRED'
             if reference_geometry else
-            'REFERENCE INPUTS DO NOT MATCH CURRENT GEOMETRY — NOT A DESIGN CHECK'
+            'GEOMETRY DIFFERS FROM EXCEL REFERENCE — NOT A DESIGN CHECK; REVIEW DEPTHS/STEEL/MAPPING'
         ),
         'limitations': [
-            'ULS moment/shear demands are copied from the ORIGINAL workbook, not computed from the current load patterns or the experimental FEM.',
+            'ULS demand source: ' + demand_source + '. The app does not independently verify action envelopes, signs, section mapping or source load combinations.',
             'Only single-cell applicable/valid rows are evaluated; blank and Excel error rows are skipped, not passed.',
             'No verified force envelope, axial–bending interaction, torsion, punching, anchorage, detailing or construction approval.',
             'Workbook has a stirrup spacing inconsistency: 225mm is larger than its own s_max values even where the source says OK.',

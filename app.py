@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import io
 import math
+import hashlib
 import tempfile
 from pathlib import Path
 
@@ -30,10 +31,11 @@ from src.structural_analysis import (
 )
 from src.drawings import draw_structural_result_annotations, draw_frame_solver_results
 from src.frame_solver import FrameOptions
-from src.uls_design import calculate_uls_design
+from src.uls_design import calculate_uls_design, reference_table
+from src.uls_inputs import uls_demands_csv_template, parse_uls_demands_csv
 from src.drawings import draw_uls_reference_comparison
 
-st.set_page_config(page_title="RCC Box Culvert | Stage 5 ULS Reference Checks", page_icon="🏗️", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="RCC Box Culvert | Stage 5 ULS Inputs & Checks", page_icon="🏗️", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
 <style>
@@ -52,7 +54,8 @@ st.warning(
     "forces and combined effects, but **is not STAAD**, does not establish approved "
     "IRC load factors, and is **not validated for structural design**. The original "
     "haunch-volume discrepancy and structural modelling assumptions remain unresolved. "
-    "Stage 5 ULS calculations use frozen workbook Design!52:166 demands, NOT the current vehicle/solver envelopes."
+    "Stage 5 ULS checks accept original-workbook, editable manual, or engineer-mapped section demands. "
+    "They do NOT automatically verify the current vehicle or experimental solver envelopes."
 )
 
 with st.sidebar:
@@ -73,9 +76,9 @@ with st.sidebar:
     st.subheader("Other parameters")
     fill = st.number_input("Earth cushion (m) — reference only", min_value=0.0, value=0.30, step=0.05, format="%.3f")
     gamma = st.number_input("Concrete unit weight (kN/m³)", min_value=0.01, value=25.0, step=0.5, format="%.2f")
-    concrete_grade = st.selectbox("Concrete grade (label only)", ["M35", "M25", "M30", "M40", "M45"], index=0)
-    steel_grade = st.selectbox("Steel grade (label only)", ["Fe500", "Fe415", "Fe550"], index=0)
-    st.caption("Grades are used in Stage 5 Excel-reference ULS equations. Source moments and depths remain fixed from M35/Fe500 original case; changing grade does NOT create valid design actions.")
+    concrete_grade = st.selectbox("Concrete grade for ULS equations", ["M35", "M25", "M30", "M40", "M45"], index=0)
+    steel_grade = st.selectbox("Steel grade for ULS equations", ["Fe500", "Fe415", "Fe550"], index=0)
+    st.caption("Grades feed ULS section equations. Moments, effective depths and reinforcement require separate verified values when the design changes.")
     st.subheader("Stage 2 — Soil and surcharge")
     k0 = st.number_input("Earth pressure coefficient K₀", min_value=0.0, max_value=1.0, value=0.50, step=0.05, format="%.3f")
     soil_density = st.number_input("Backfill density (tf/m³)", min_value=0.01, value=2.0, step=0.1, format="%.3f")
@@ -358,7 +361,7 @@ m4.metric("Self-weight (unfactored)", f"{loads['concrete_self_weight_kn']:,.2f} 
 tab_drawing, tab_calcs, tab_earth, tab_traffic, tab_vehicle, tab_combo, tab_solver, tab_analysis, tab_uls, tab_ref, tab_export, tab_notes = st.tabs([
     "📐 Drawing", "🧮 Calculations", "🌍 Earth pressure", "🚛 Braking forces",
     "🚚 Vehicle axles & dispersion", "🧾 Factor sets", "🧱 In-app frame solver", "🏗️ STAAD result comparison",
-    "🛡️ ULS checks (Excel Design)", "📋 Reference comparison", "📥 Downloads", "ℹ️ Roadmap"
+    "🛡️ ULS design checks", "📋 Reference comparison", "📥 Downloads", "ℹ️ Roadmap"
 ])
 
 with tab_drawing:
@@ -679,185 +682,252 @@ with tab_analysis:
                "capacity, shear, crack-width, reinforcement, BBS or BOQ.")
 
 with tab_uls:
-    st.subheader("Stage 5 — Ultimate Limit State (ULS) checks")
-    st.caption("Exact source: **original Excel → Design worksheet → rows 52–166**. "
-               "These are the source case's flexure / distribution steel / shear / shear-stirrup calculations.")
+    st.subheader("Stage 5 — Ultimate Limit State (ULS) design inputs")
+    st.caption("Flexure, distribution steel, shear capacity, and stirrup checks based on the original engineering workbook formulas.")
     st.warning(
-        "**NOT a live IRC-approved ULS design.** Excel moments and shears are old reference "
-        "values, not recalculated from your current vehicle class, factor set, or experimental "
-        "FEM solver. Without approved ULS member force envelopes, these checks cannot certify a culvert."
+        "**Engineering review required.** ULS capacity checks need the governing member-action "
+        "envelopes from a verified structural model with approved load combinations. "
+        "The in-app frame solver is experimental and is NOT automatically treated as an approved ULS source."
     )
     source_uls = result["uls_design"]
     if not source_uls["reference_geometry_matches"]:
-        st.error("Current geometry, fill, material or haunch inputs differ from the original "
-                 "1 × 3 × 3 M35/Fe500 workbook. The displayed reference demand and effective "
-                 "depths no longer represent this altered design. Get updated ULS results first.")
+        st.error("The current geometry, fill, material or haunch data differ from the original reference. "
+                 "Update section depths, reinforcement and every demand for the revised structure. "
+                 "Do not reuse the old design actions as an approved design.")
     else:
-        st.info("Geometry matches the workbook's nominal reference case. This does NOT mean "
-                "the vehicle loads or STAAD analysis have been verified.")
-    st.markdown("#### Optional — edit engineering inputs for a what-if check")
-    st.caption("Editable tables start from workbook cached values. You may edit moments, shears, "
-               "effective depths and reinforcement. Changes are **manual trial values**, not FEM results.")
-    with st.expander("Edit flexure demands, effective depths and main steel (Design rows 57–76)"):
+        st.info("Dimensions match the nominal workbook example, but that does NOT validate the active vehicle loading or structural analysis.")
+
+    demand_mode = st.radio(
+        "Where do the ULS bending moments and shear forces come from?",
+        ["Original Excel reference", "Manual engineer-entered forces", "Engineer-mapped ULS force CSV"],
+        horizontal=False,
+        key="uls_demand_mode",
+    )
+    st.caption("Concrete and steel grades come from the Design inputs sidebar. Enter nonnegative Mu/Vu "
+               "demand magnitudes after your engineer verifies the governing face and section. "
+               "Effective depths and reinforcement are editable but are not auto-recomputed from cover or bar layout.")
+
+    # Download a blank, complete mapping template. Identifiers are internal to
+    # the file; the engineer maps real STAAD ULS section demands and their sign.
+    st.download_button(
+        "Download ULS force mapping template (CSV)",
+        data=uls_demands_csv_template(reference_table()),
+        file_name="uls_forces_mapping_template.csv", mime="text/csv",
+        key="uls_force_template",
+    )
+    if uploaded_structural_rows:
+        st.info(f"Stage 4 has {len(uploaded_structural_rows)} imported force records. "
+                "Those general STAAD-mapped stations do not cover all ULS faces and locations. "
+                "Use the ULS template to map the complete, engineer-reviewed governing actions "
+                "before importing them here. We do not fill missing actions with old Excel results.")
+
+    imported_uls = {}
+    current_source = "Original Excel cached ULS demands (reference case only)"
+    editor_suffix = "reference"
+    if demand_mode == "Manual engineer-entered forces":
+        current_source = "Manually entered ULS design-section demands (review required)"
+        editor_suffix = "manual"
+        st.info("Enter your own Mu and Vu values in the tables below. Values initially shown are only "
+                "placeholders from the original workbook. Replace them with engineer-approved demands.")
+    elif demand_mode == "Engineer-mapped ULS force CSV":
+        current_source = "Engineer-mapped ULS force CSV (not independently verified)"
+        uploaded_uls_csv = st.file_uploader(
+            "Upload completed ULS force mapping CSV", type=["csv"], key="uls_forces_csv_upload",
+        )
+        if uploaded_uls_csv is None:
+            st.info("Upload the completed CSV to calculate ULS checks using imported forces. "
+                    "The ULS reference values will NOT be treated as the imported values.")
+            st.stop()
+        try:
+            csv_bytes = uploaded_uls_csv.getvalue()
+            imported_uls = parse_uls_demands_csv(csv_bytes, reference_table())
+            editor_suffix = "mapped_" + hashlib.sha256(csv_bytes).hexdigest()[:12]
+        except ValueError as exc:
+            st.error(f"Cannot use the uploaded ULS force CSV: {exc}")
+            st.stop()
+        st.success("Complete mapped ULS demands imported. Review the bending-moment signs, "
+                   "critical faces, support locations and load combinations with your sir.")
+
+    # Apply a complete imported force source BEFORE initializing the tables.
+    base_uls = calculate_uls_design(inputs, imported_uls, demand_source=current_source)
+    st.markdown("#### Edit ULS section inputs")
+    with st.expander("Flexure inputs — bending moment, effective depth and main reinforcement", expanded=True):
         flex_input = [
-            {"row":r["row"], "member":r["member"], "location":r["location"],
-             "moment_tf_m_per_m":r["moment_tf_m_per_m"],
-             "effective_depth_mm":r["effective_depth_mm"],
-             "provided_as_mm2_per_m":r["provided_as_mm2_per_m"]}
-            for r in source_uls["flexure"]
+            {"row": r["row"], "member": r["member"], "location": r["location"],
+             "moment_tf_m_per_m": r["moment_tf_m_per_m"],
+             "effective_depth_mm": r["effective_depth_mm"],
+             "provided_as_mm2_per_m": r["provided_as_mm2_per_m"]}
+            for r in base_uls["flexure"]
         ]
         flex_input = st.data_editor(
-            flex_input, key="stage5_flexure_editor", hide_index=True,
-            disabled=["row", "member", "location"], use_container_width=True,
-            num_rows="fixed",
+            flex_input, key="uls_flex_editor_" + editor_suffix, hide_index=True,
+            disabled=["row", "member", "location"], use_container_width=True, num_rows="fixed",
+            column_config={"row": None},
         )
-    with st.expander("Edit shear demands, longitudinal steel and effective depths (Design rows 117–136)"):
+    with st.expander("Shear inputs — shear force, effective depth and longitudinal reinforcement"):
         shear_input = [
-            {"row":r["row"], "member":r["member"], "location":r["location"],
-             "design_shear_tf_per_m":r["design_shear_tf_per_m"],
-             "effective_depth_mm":r["effective_depth_mm"],
-             "provided_as_mm2_per_m":r["provided_as_mm2_per_m"]}
-            for r in source_uls["shear_without_stirrups"]
+            {"row": r["row"], "member": r["member"], "location": r["location"],
+             "design_shear_tf_per_m": r["design_shear_tf_per_m"],
+             "effective_depth_mm": r["effective_depth_mm"],
+             "provided_as_mm2_per_m": r["provided_as_mm2_per_m"]}
+            for r in base_uls["shear_without_stirrups"]
         ]
         shear_input = st.data_editor(
-            shear_input, key="stage5_shear_editor", hide_index=True,
-            disabled=["row", "member", "location"], use_container_width=True,
-            num_rows="fixed",
+            shear_input, key="uls_shear_editor_" + editor_suffix, hide_index=True,
+            disabled=["row", "member", "location"], use_container_width=True, num_rows="fixed",
+            column_config={"row": None},
         )
-    with st.expander("Edit distribution reinforcement (Design rows 93–102)"):
+    with st.expander("Distribution reinforcement — bar diameter, spacing and steel requirement"):
         distrib_input = [
-            {"row":r["row"], "member":r["member"], "location":r["location"],
-             "required_as_mm2_per_m":r["required_as_mm2_per_m"],
-             "diameter_mm":r["diameter_mm"], "spacing_mm":r["spacing_mm"]}
-            for r in source_uls["distribution"]
+            {"row": r["row"], "member": r["member"], "location": r["location"],
+             "required_as_mm2_per_m": r["required_as_mm2_per_m"],
+             "diameter_mm": r["diameter_mm"], "spacing_mm": r["spacing_mm"]}
+            for r in base_uls["distribution"]
         ]
         distrib_input = st.data_editor(
-            distrib_input, key="stage5_distribution_editor", hide_index=True,
-            disabled=["row", "member", "location"], use_container_width=True,
-            num_rows="fixed",
+            distrib_input, key="uls_distribution_editor_" + editor_suffix, hide_index=True,
+            disabled=["row", "member", "location"], use_container_width=True, num_rows="fixed",
+            column_config={"row": None},
         )
-    with st.expander("Edit shear reinforcement / stirrups (Design rows 150–151)"):
+    with st.expander("Stirrups — number of legs, diameter, spacing and angle"):
         stirrup_input = [
-            {"row":r["row"], "member":r["member"], "location":r["location"],
-             "legs":r["legs"], "bar_dia_mm":r["bar_dia_mm"],
-             "spacing_mm":r["spacing_mm"], "theta_deg":r["theta_deg"]}
-            for r in source_uls["stirrups"]
+            {"row": r["row"], "member": r["member"], "location": r["location"],
+             "legs": r["legs"], "bar_dia_mm": r["bar_dia_mm"],
+             "spacing_mm": r["spacing_mm"], "theta_deg": r["theta_deg"]}
+            for r in base_uls["stirrups"]
         ]
         stirrup_input = st.data_editor(
-            stirrup_input, key="stage5_stirrup_editor", hide_index=True,
-            disabled=["row", "member", "location"], use_container_width=True,
-            num_rows="fixed",
+            stirrup_input, key="uls_stirrups_editor_" + editor_suffix, hide_index=True,
+            disabled=["row", "member", "location"], use_container_width=True, num_rows="fixed",
+            column_config={"row": None},
         )
 
-    def _edited_records(value):
+    def _uls_edited_records(value):
         return value.to_dict("records") if hasattr(value, "to_dict") else list(value)
 
     override_fields = {
-        'flexure': (flex_input, ('moment_tf_m_per_m', 'effective_depth_mm', 'provided_as_mm2_per_m')),
-        'shear': (shear_input, ('design_shear_tf_per_m', 'effective_depth_mm', 'provided_as_mm2_per_m')),
-        'distribution': (distrib_input, ('required_as_mm2_per_m', 'diameter_mm', 'spacing_mm')),
-        'stirrup': (stirrup_input, ('legs', 'bar_dia_mm', 'spacing_mm', 'theta_deg')),
+        "flexure": (flex_input, ("moment_tf_m_per_m", "effective_depth_mm", "provided_as_mm2_per_m")),
+        "shear_without_stirrups": (shear_input, ("design_shear_tf_per_m", "effective_depth_mm", "provided_as_mm2_per_m")),
+        "distribution": (distrib_input, ("required_as_mm2_per_m", "diameter_mm", "spacing_mm")),
+        "stirrups": (stirrup_input, ("legs", "bar_dia_mm", "spacing_mm", "theta_deg")),
     }
     overrides = {}
     changes = 0
     try:
         for group, (edited, keys) in override_fields.items():
-            ref_name = {'shear':'shear_without_stirrups', 'stirrup':'stirrups'}.get(group, group)
-            original_by_row = {r['row']:r for r in source_uls[ref_name]}
-            for row in _edited_records(edited):
-                excel_row = int(row['row'])
-                if excel_row not in original_by_row:
-                    raise ValueError(f"Unexpected ULS row {excel_row} in editor")
-                new = {}
+            originals = {r["row"]: r for r in base_uls[group]}
+            for row in _uls_edited_records(edited):
+                idx = int(row["row"])
+                if idx not in originals:
+                    raise ValueError("Unknown ULS section identifier")
+                revised = {}
                 for field in keys:
                     raw = row[field]
-                    if raw is None or str(raw).strip() == '':
-                        raise ValueError(f"Row {excel_row}: {field} is blank")
-                    new[field] = int(raw) if field == 'legs' else float(raw)
-                    if not math.isclose(float(new[field]), float(original_by_row[excel_row][field]),
-                                        abs_tol=1e-9, rel_tol=0):
+                    if raw is None or str(raw).strip() == "":
+                        raise ValueError(f"{row['member']} / {row['location']}: {field} is blank")
+                    value = float(raw)
+                    if not math.isfinite(value):
+                        raise ValueError(f"{row['member']} / {row['location']}: {field} is not finite")
+                    if field in ("moment_tf_m_per_m", "design_shear_tf_per_m") and value < 0:
+                        raise ValueError("Enter nonnegative ULS demand magnitude after verifying the tension face")
+                    if field == "legs":
+                        if value < 1 or not value.is_integer():
+                            raise ValueError("Number of stirrup legs must be a positive integer")
+                        value = int(value)
+                    revised[field] = value
+                    if not math.isclose(float(value), float(originals[idx][field]), abs_tol=1e-9, rel_tol=0):
                         changes += 1
-                if new:
-                    overrides[excel_row] = new
-        uls = calculate_uls_design(inputs, overrides)
-        result['uls_design'] = uls  # JSON & CSV downloads use precisely these edited results
+                overrides[idx] = {**imported_uls.get(idx, {}), **revised}
+        if demand_mode == "Original Excel reference" and changes:
+            current_source = "Edited original Excel ULS reference: user-supplied trial values"
+        uls = calculate_uls_design(inputs, overrides, demand_source=current_source)
+        uls["input_mode"] = demand_mode
+        uls["editable_values_changed"] = changes
+        uls["mapped_uls_force_rows"] = sum(bool(x) for x in imported_uls.values())
+        result["uls_design"] = uls
+        result["limitations"] = [
+            message for message in result.get("limitations", [])
+            if not message.startswith("Stage 5 ULS demand source:")
+        ]
+        result["limitations"].append(
+            f"Stage 5 ULS demand source: {current_source}. Independent verification of "
+            "load factors, action signs, design sections, and reinforcement is still required."
+        )
     except (ValueError, TypeError, KeyError) as exc:
-        st.error(f"Invalid editable ULS input: {exc}")
+        st.error(f"Invalid ULS engineering input: {exc}")
         st.stop()
 
     if changes:
-        st.info(f"{changes} input value(s) changed from original Excel. All outputs below and "
-                "the CSV/JSON downloads use your current trial values.")
+        st.info(f"{changes} editable input value(s) changed. Checks and CSV/JSON reports "
+                "now use the displayed trial values.")
+    st.caption(f"**Current ULS force source:** {uls['demand_source']}")
     a1, a2, a3 = st.columns(3)
-    a1.metric("Flexural sections evaluated", len(uls['flexure']))
-    a2.metric("Shear locations evaluated", len(uls['shear_without_stirrups']))
-    a3.metric("ULS rows needing review", uls['review_count'])
-    st.caption("A row marked PASS means ONLY the listed Excel-reference arithmetic is satisfied. "
-               "It is NOT an approved section design or structural safety certification.")
+    a1.metric("Flexural sections evaluated", len(uls["flexure"]))
+    a2.metric("Shear locations evaluated", len(uls["shear_without_stirrups"]))
+    a3.metric("Sections needing review", uls["review_count"])
+    st.caption("'PASS' means ONLY that the limited workbook-equivalent equations pass. "
+               "It does not certify structural strength or compliance with IRC.")
 
     sec_flex, sec_dist, sec_shear, sec_links, sec_audit = st.tabs([
         "Flexural strength", "Distribution steel", "Shear without stirrups", "Stirrup design", "Source audit"
     ])
     with sec_flex:
-        st.latex(r"A_{s,req}=\frac{0.5 f_{ck}}{f_y}\left[1-\sqrt{1-\frac{4.6 M_u}{100 f_{ck} d^2}}\right]d\,10^6")
-        st.caption("Formula shown schematically: the code uses d in metres inside the root and "
-                   "tf·m/m moments, matching the workbook's explicit conversion constants.")
-        flex_display = [{"Excel row":r['row'], "Member":r['member'], "Location":r['location'],
-                         "Mu (tf·m/m)":round(r['moment_tf_m_per_m'], 3),
-                         "d (mm)":round(r['effective_depth_mm'], 1),
-                         "d_min (mm)":round(r['d_min_mm'], 1),
-                         "As req (mm²/m)":None if r['as_required_mm2_per_m'] is None else round(r['as_required_mm2_per_m'], 2),
-                         "As provided (mm²/m)":round(r['provided_as_mm2_per_m'], 2),
-                         "As min (mm²/m)":round(r['as_min_mm2_per_m'], 2),
-                         "Status":r['status']} for r in uls['flexure']]
-        st.dataframe(flex_display, hide_index=True, use_container_width=True)
+        st.dataframe([{
+            "Member": r["member"], "Location": r["location"],
+            "Mu (tf·m/m)": round(r["moment_tf_m_per_m"], 3),
+            "d (mm)": round(r["effective_depth_mm"], 1),
+            "Min depth (mm)": round(r["d_min_mm"], 1),
+            "As required (mm²/m)": None if r["as_required_mm2_per_m"] is None else round(r["as_required_mm2_per_m"], 2),
+            "As provided (mm²/m)": round(r["provided_as_mm2_per_m"], 2),
+            "Status": r["status"],
+        } for r in uls["flexure"]], use_container_width=True, hide_index=True)
     with sec_dist:
-        st.latex(r"A_{s,provided}=\frac{\pi\phi^2}{4}\frac{1000}{s}")
-        st.dataframe([{"Row":r['row'], "Member":r['member'], "Location":r['location'],
-                       "Required (mm²/m)":round(r['required_as_mm2_per_m'],2),
-                       "Provided (mm²/m)":round(r['provided_as_mm2_per_m'],2),
-                       "Diameter (mm)":r['diameter_mm'], "Spacing (mm)":r['spacing_mm'],
-                       "Status":r['status']} for r in uls['distribution']],
-                     hide_index=True, use_container_width=True)
+        st.dataframe([{
+            "Member": r["member"], "Location": r["location"],
+            "As required (mm²/m)": round(r["required_as_mm2_per_m"], 2),
+            "As provided (mm²/m)": round(r["provided_as_mm2_per_m"], 2),
+            "Bar diameter (mm)": r["diameter_mm"], "Spacing (mm)": r["spacing_mm"],
+            "Status": r["status"],
+        } for r in uls["distribution"]], use_container_width=True, hide_index=True)
     with sec_shear:
-        st.caption("Reproduces Design worksheet's rho, k, Vmin, VRdc and compare-with-design-shear. "
-                   "Compression stress set to zero, following the original reference rows.")
-        st.dataframe([{"Row":r['row'], "Member":r['member'], "Location":r['location'],
-                       "Vu (tf/m)":round(r['design_shear_tf_per_m'],3),
-                       "Vmin (tf/m)":round(r['v_min_tf_per_m'],3),
-                       "VRdc (tf/m)":round(r['resistance_tf_per_m'],3),
-                       "Stirrups required":r['stirrups_required']}
-                      for r in uls['shear_without_stirrups']],
-                     hide_index=True, use_container_width=True)
+        st.dataframe([{
+            "Member": r["member"], "Location": r["location"],
+            "Vu (tf/m)": round(r["design_shear_tf_per_m"], 3),
+            "Shear resistance (tf/m)": round(r["resistance_tf_per_m"], 3),
+            "Stirrups required": r["stirrups_required"],
+        } for r in uls["shear_without_stirrups"]], use_container_width=True, hide_index=True)
     with sec_links:
-        st.dataframe([{"Excel row":r['row'], "Location":r['location'],
-                       "Vu (tf/m)":round(r['design_shear_tf_per_m'],3),
-                       "VRds (tf/m)":round(r['vrd_s_tf_per_m'],3),
-                       "Spacing (mm)":r['spacing_mm'],
-                       "Max spacing (mm)":round(r['max_spacing_mm'],1),
-                       "Strength":r['shear_strength_check'],
-                       "Spacing":r['stirrup_spacing_check'],
-                       "Final review":r['status']} for r in uls['stirrups']],
-                     hide_index=True, use_container_width=True)
-        if any(r['spacing_mm'] > r['max_spacing_mm'] for r in uls['stirrups']):
-            st.error("**Source workbook inconsistency:** Design!150 and Design!151 mark shear "
-                     "reinforcement as OK, but their provided 225 mm spacing exceeds the "
-                     "worksheet's own spacing limits (183 / 145.5 mm). This check is "
-                     "therefore flagged for the engineer, even though strength arithmetic may pass.")
+        st.dataframe([{
+            "Location": r["location"],
+            "Vu (tf/m)": round(r["design_shear_tf_per_m"], 3),
+            "VRds (tf/m)": round(r["vrd_s_tf_per_m"], 3),
+            "Spacing (mm)": r["spacing_mm"],
+            "Max spacing (mm)": round(r["max_spacing_mm"], 1),
+            "Strength": r["shear_strength_check"],
+            "Spacing": r["stirrup_spacing_check"],
+            "Status": r["status"],
+        } for r in uls["stirrups"]], use_container_width=True, hide_index=True)
+        if any(r["spacing_mm"] > r["max_spacing_mm"] for r in uls["stirrups"]):
+            st.error("The source workbook lists 'OK' for two stirrup checks, but the supplied "
+                     "spacing exceeds its own calculated limits. Ask the engineer to review.")
     with sec_audit:
-        st.json({"source":uls['source'], "reference_geometry_matches":uls['reference_geometry_matches'],
-                 "skipped_error_or_nonapplicable_rows":uls['skipped_nonapplicable_rows']})
-        for msg in uls['reference_warnings'] + uls['limitations']:
-            st.warning(msg)
+        st.json({
+            "demand_source": uls["demand_source"],
+            "reference_geometry_matches": uls["reference_geometry_matches"],
+            "source_audit": uls["source"],
+            "excluded_sections": uls["skipped_nonapplicable_rows"],
+        })
+        for note in uls["reference_warnings"] + uls["limitations"]:
+            st.warning(note)
     try:
         chart = draw_uls_reference_comparison(uls)
         chart_png = figure_to_png(chart)
         plt.close(chart)
         st.image(chart_png, use_container_width=True)
-        st.download_button("Download ULS arithmetic chart (PNG)", chart_png,
-                           file_name="uls_reference_checks.png", mime="image/png", key="stage5_uls_chart_download")
+        st.download_button("Download ULS checks chart (PNG)", chart_png,
+                           file_name="uls_checks_chart.png", mime="image/png", key="uls_chart_download")
     except Exception as err:
-        st.error(f"ULS reference chart could not be rendered: {err}")
+        st.error(f"ULS chart could not be rendered: {err}")
 
 with tab_ref:
     st.subheader("Reference design note comparison — example case only")

@@ -109,14 +109,18 @@ def to_csv_bytes(result: dict) -> bytes:
         uls = result["uls_design"]
         writer.writerow(["uls", "source", uls["source"], ""]) 
         writer.writerow(["uls", "demand_source", uls["demand_source"], ""]) 
-        writer.writerow(["uls", "reference_geometry_matches", uls["reference_geometry_matches"], ""]) 
+        writer.writerow(["uls", "reference_geometry_matches", uls["reference_geometry_matches"], ""])
+        writer.writerow(["uls", "input_mode", uls.get("input_mode", "Reference calculation"), ""])
+        writer.writerow(["uls", "editable_values_changed", uls.get("editable_values_changed", 0), ""])
+        writer.writerow(["uls", "mapped_uls_force_rows", uls.get("mapped_uls_force_rows", 0), ""])
+
         writer.writerow(["uls", "review_count", uls["review_count"], "rows requiring review"])
         for group in ("flexure", "distribution", "shear_without_stirrups", "stirrups"):
             for r in uls[group]:
-                label = f"Design!{r['row']} {r['member']} | {r['location']}"
+                label = f"Section {r['row']} {r['member']} | {r['location']}"
                 for name, val in r.items():
                     if name not in ("member", "location", "row"):
-                        writer.writerow(["uls_" + group, label + " / " + name, val, "Excel-reference ULS only"])
+                        writer.writerow(["uls_" + group, label + " / " + name, val, "ULS trial; " + uls["demand_source"]])
         for warning in uls["limitations"]:
             writer.writerow(["uls_limitations", "condition", warning, ""])
     writer.writerow(["status", "structural_design_status", result["structural_design_status"], ""])

@@ -38,6 +38,8 @@ def calculate_preview(
     structural_records: list[dict] | None = None,
     frame_options: FrameOptions | None = None,
     run_frame: bool = False,
+    uls_design_overrides: dict[int, dict] | None = None,
+    uls_design_demand_source: str = "Original Excel ULS reference (not verified against active loads)",
 ) -> dict:
     """Return one consistent snapshot of the available analysis stages.
 
@@ -150,10 +152,12 @@ def calculate_preview(
         ]
     # Stage 5 ULS is a traceable translation of Design!52:166 for the original
     # case, not a capacity check against the experimental model's member forces.
-    result["uls_design"] = calculate_uls_design(inputs)
+    result["uls_design"] = calculate_uls_design(
+        inputs, uls_design_overrides, demand_source=uls_design_demand_source
+    )
     result["limitations"].append(
-        "Stage 5 ULS checks use frozen Excel Design!52:166 demand and reinforcement values; "
-        "they are NOT validated against the active vehicle selection, factor set or FEM model."
+        f"Stage 5 ULS demand source: {uls_design_demand_source}. Design forces, "
+        "section mappings and steel details require engineer review; unvalidated FEM is not approved input."
     )
     if structural_records:
         result["limitations"].append(
