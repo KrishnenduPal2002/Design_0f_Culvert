@@ -6,6 +6,7 @@ Run: py -3.14 -m streamlit run app.py
 from __future__ import annotations
 
 import io
+import math
 import tempfile
 from pathlib import Path
 
@@ -21,8 +22,7 @@ from src.drawings import (draw_culvert, draw_load_schematic, export_schematic_dx
 from src.reports import to_csv_bytes, to_json_bytes
 from src.earth_pressure import EarthPressureInputs
 from src.traffic_loads import BrakingInputs
-from src.vehicle_loading import (VehicleLoadingInputs, REFERENCE_70RW_WHEELS_TF,
-                                 REFERENCE_70RW_SPACINGS_M)
+from src.vehicle_loading import (VehicleLoadingInputs, vehicle_preset)
 from src.load_combinations import CombinationInputs
 from src.structural_analysis import (
     parse_mapped_analysis_csv, example_template_csv, reference_csv,
@@ -30,8 +30,10 @@ from src.structural_analysis import (
 )
 from src.drawings import draw_structural_result_annotations, draw_frame_solver_results
 from src.frame_solver import FrameOptions
+from src.uls_design import calculate_uls_design
+from src.drawings import draw_uls_reference_comparison
 
-st.set_page_config(page_title="RCC Box Culvert | Stage 4B Frame Solver", page_icon="🏗️", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="RCC Box Culvert | Stage 5 ULS Reference Checks", page_icon="🏗️", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
 <style>
@@ -41,7 +43,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🏗️ RCC Box Culvert — Geometry, Loads & 2D Frame Analysis")
+st.title("🏗️ RCC Box Culvert — Loads, Frame Analysis & ULS Checks")
 st.caption("Single-cell box culvert · editable geometry · four optional triangular internal haunches")
 st.warning(
     "**Unverified engineering prototype — NOT for construction.** Stage 4B includes an "
@@ -49,7 +51,8 @@ st.warning(
     "concrete-weight, axle strip-load and braking loads. It calculates member-end "
     "forces and combined effects, but **is not STAAD**, does not establish approved "
     "IRC load factors, and is **not validated for structural design**. The original "
-    "haunch-volume discrepancy and structural modelling assumptions remain unresolved."
+    "haunch-volume discrepancy and structural modelling assumptions remain unresolved. "
+    "Stage 5 ULS calculations use frozen workbook Design!52:166 demands, NOT the current vehicle/solver envelopes."
 )
 
 with st.sidebar:
@@ -72,7 +75,7 @@ with st.sidebar:
     gamma = st.number_input("Concrete unit weight (kN/m³)", min_value=0.01, value=25.0, step=0.5, format="%.2f")
     concrete_grade = st.selectbox("Concrete grade (label only)", ["M35", "M25", "M30", "M40", "M45"], index=0)
     steel_grade = st.selectbox("Steel grade (label only)", ["Fe500", "Fe415", "Fe550"], index=0)
-    st.caption("Concrete and steel grades are labels only; earth cushion is used in the Stage 2 earth-pressure preview.")
+    st.caption("Grades are used in Stage 5 Excel-reference ULS equations. Source moments and depths remain fixed from M35/Fe500 original case; changing grade does NOT create valid design actions.")
     st.subheader("Stage 2 — Soil and surcharge")
     k0 = st.number_input("Earth pressure coefficient K₀", min_value=0.0, max_value=1.0, value=0.50, step=0.05, format="%.3f")
     soil_density = st.number_input("Backfill density (tf/m³)", min_value=0.01, value=2.0, step=0.1, format="%.3f")
@@ -82,30 +85,97 @@ with st.sidebar:
     force_40t = st.number_input("Class 40T contribution (tf)", min_value=0.0, value=8.0, step=0.1)
     force_a = st.number_input("Class A contribution (tf)", min_value=0.0, value=1.14, step=0.01)
     lever_arm = st.number_input("Assumed moment lever arm (m) — illustration only", min_value=0.0, value=1.325, step=0.025, format="%.3f")
-    st.subheader("Stage 3 — Wheel loads and impact")
-    vehicle_mode = st.selectbox("Vehicle axle dataset", [
-        "Class 70R(W) — source Excel Input sheet", "Custom pattern — engineer-supplied"
-    ], help="Only the 70R(W) wheel pattern has been extracted from this workbook into the application.")
-    default_wheels = ", ".join(f"{x:g}" for x in REFERENCE_70RW_WHEELS_TF)
-    default_spacings = ", ".join(f"{x:g}" for x in REFERENCE_70RW_SPACINGS_M)
-    if vehicle_mode.startswith("Custom"):
-        wheel_csv = st.text_input("Wheel forces (tf), comma-separated", value=default_wheels,
-                                  help="Engineering reference only. Provide values from the responsible designer.")
-        spacing_csv = st.text_input("Spacing between consecutive wheels (m)", value=default_spacings)
+    st.subheader("Stage 3 — Vehicle loading patterns")
+    case_names = {
+        '70rw': 'Class 70R(W) — wheeled (Excel reference)',
+        '40t': 'Class 40T — bogie: two 20 tf loads',
+        '70rt': 'Class 70R(T) — tracked (5 equivalent stations)',
+        'sv385': '385T — special multi-axle vehicle (SV)',
+        'custom': 'Custom Pattern — engineer-supplied (retained)',
+    }
+    vehicle_code = st.selectbox(
+        'Vehicle loading type', list(case_names), format_func=lambda k: case_names[k],
+        key='selected_vehicle_type',
+    )
+    preset_inputs = vehicle_preset(vehicle_code)
+    st.caption('Each pattern has independent editable loads, spacings, contact width and impact settings. '
+               'Defaults are extracted from the source Excel Input worksheet.')
+    wheel_csv = st.text_area(
+        'Equivalent load stations / wheel / axle loads (tf), comma-separated',
+        value=', '.join(f'{v:g}' for v in preset_inputs.wheel_loads_tf),
+        height=80, key=f'wheel_values_{vehicle_code}',
+    )
+    spacing_csv = st.text_area(
+        'Consecutive longitudinal spacing (m), comma-separated',
+        value=', '.join(f'{v:g}' for v in preset_inputs.axle_spacings_m),
+        height=72, key=f'wheel_distances_{vehicle_code}',
+    )
+    if vehicle_code == '70rt':
+        st.info('The workbook represents the 70 tf tracked load by five equivalent '
+                '14 tf stations spaced 0.914 m apart. These are NOT five physical wheels.')
+    elif vehicle_code == 'sv385':
+        st.info('385T: 20 trailer axles at 18 tf each plus three prime-mover axles '
+                '(9.5, 9.5, 6 tf). The workbook uses a special transverse dispersion '
+                'rule. Dynamic impact and braking are excluded by default.')
+    elif vehicle_code == '40t':
+        st.caption('Workbook: 40T BOGIE, two 20 tf loads at 1.22 m spacing; not a tracked load.')
+    elif vehicle_code == 'custom':
+        st.info('Custom Pattern is preserved. Enter N loads and exactly N−1 positive spacings.')
+    lead_axle = st.number_input(
+        'Leading station / first axle position x (m)', min_value=0.0,
+        value=preset_inputs.lead_axle_position_m, step=0.05, format='%.3f',
+        key=f'lead_x_{vehicle_code}',
+    )
+    tyre_width = st.number_input(
+        'Reference transverse contact width (m)', min_value=0.01,
+        value=preset_inputs.tyre_transverse_width_m, step=0.01,
+        key=f'tyre_width_{vehicle_code}',
+    )
+    wearing = st.number_input(
+        'Wearing coat for spread (m)', min_value=0.0,
+        value=preset_inputs.wearing_coat_m, step=0.01,
+        key=f'wearing_{vehicle_code}',
+    )
+    spread_slope = st.number_input(
+        'Spread per side per unit fill depth', min_value=0.01,
+        value=preset_inputs.fill_spread_each_side_per_m, step=0.1,
+        key=f'spread_{vehicle_code}',
+    )
+    available_edge = st.number_input(
+        'Reference edge availability (m)', min_value=0.01,
+        value=preset_inputs.avail_edge_width_m, step=0.01,
+        key=f'edge_avail_{vehicle_code}',
+    )
+    available_centre = st.number_input(
+        'Reference centre availability (m)', min_value=0.01,
+        value=preset_inputs.avail_centre_width_m, step=0.01,
+        key=f'centre_avail_{vehicle_code}',
+        help='Used for wheeled, bogie, tracked and custom reference dispersion.',
+    )
+    sv_gap1, sv_gap2 = preset_inputs.sv_gap1_m, preset_inputs.sv_gap2_m
+    if vehicle_code == 'sv385':
+        sv_gap1 = st.number_input(
+            'SV transverse gap 1 — Excel U1375 (m)', min_value=0.01,
+            value=preset_inputs.sv_gap1_m, step=0.01, key='sv_gap1',
+        )
+        sv_gap2 = st.number_input(
+            'SV transverse gap 2 — Excel U1376 (m)', min_value=0.01,
+            value=preset_inputs.sv_gap2_m, step=0.01, key='sv_gap2',
+        )
+        override_impact = False
+        manual_impact = 1.0
+        st.caption('Special Vehicle: impact factor fixed at 1.0 in this reference model. '
+                   'IRC:6 special-vehicle rules require separate engineering verification.')
     else:
-        wheel_csv = default_wheels
-        spacing_csv = default_spacings
-        st.caption(f"Reference wheel forces: {default_wheels} tf; spacings: {default_spacings} m")
-    lead_axle = st.number_input("Leading wheel x from left support (m)", value=0.25,
-                                min_value=0., step=0.05,format="%.3f")
-    tyre_width = st.number_input("Tyre transverse contact width (m)", value=0.86, min_value=0.01,step=0.01)
-    wearing = st.number_input("Wearing coat for wheel spread (m)", value=0.05,min_value=0.,step=0.01)
-    spread_slope = st.number_input("Contact spread per side per unit fill depth",value=1.0,min_value=0.01,step=0.1)
-    available_edge = st.number_input("Workbook edge availability T12 (m)", value=2.13,min_value=0.01,step=0.01)
-    available_centre = st.number_input("Workbook centre availability T13 (m)",value=1.93,min_value=0.01,step=0.01)
-    override_impact = st.checkbox("Override Excel impact factor (engineer-supplied)",value=False)
-    manual_impact = st.number_input("Manual impact factor",value=1.25,min_value=1.0,step=0.05,
-                                    disabled=not override_impact)
+        override_impact = st.checkbox(
+            'Override spreadsheet impact factor — engineer supplied',
+            value=False, key=f'impact_override_{vehicle_code}',
+        )
+        manual_impact = st.number_input(
+            'Manual impact multiplier', min_value=1.0,
+            value=1.25, step=0.05, disabled=not override_impact,
+            key=f'manual_impact_{vehicle_code}',
+        )
     st.subheader("Stage 3 — User-defined load factors")
     st.caption("No factors below are certified IRC ULS/SLS values. Enter an engineer-reviewed factor set.")
     combo_name = st.text_input("Factor set name",value="User-configured illustration (NOT approved)")
@@ -180,7 +250,10 @@ try:
         fill_spread_each_side_per_m=spread_slope,
         avail_edge_width_m=available_edge, avail_centre_width_m=available_centre,
         impact_override=manual_impact if override_impact else None,
-        case_name=vehicle_mode,
+        case_name=case_names[vehicle_code],
+        loading_type=vehicle_code,
+        sv_gap1_m=sv_gap1,
+        sv_gap2_m=sv_gap2,
     )
     combo_inputs = CombinationInputs(
         name=combo_name, concrete_dead_factor=f_dead,
@@ -197,7 +270,7 @@ try:
         foundation_modulus_tf_m3=frame_k,
         mesh_divisions_per_member=int(frame_mesh),
         compression_only_springs=frame_contact,
-        braking_case=frame_braking_case,
+        braking_case='Class 40T + A' if vehicle_code == '40t' else frame_braking_case,
         braking_direction=1 if braking_direction.startswith("Right") else -1,
     )
     result = calculate_preview(
@@ -205,12 +278,17 @@ try:
         vehicle_inputs, combo_inputs,
         structural_records=uploaded_structural_rows,
         frame_options=frame_options,
-        run_frame=enable_frame,
+        run_frame=enable_frame and vehicle_code in ('70rw', '40t', 'custom'),
     )
 except (ValueError, TypeError) as exc:
     st.error(f"Invalid input: {exc}")
     st.info("Check your dimensions and soil/braking inputs in the sidebar.")
     st.stop()
+
+if enable_frame and vehicle_code in ('70rt', 'sv385'):
+    st.warning('Stage 4B solver was **NOT run** for this tracked / special vehicle. '
+               'Its load mapping and braking rules require a separate validated model; '
+               'we are displaying the reference calculations and drawings only.')
 
 g = result["geometry"]
 loads = result["preliminary_self_weight"]
@@ -277,10 +355,10 @@ m2.metric("External height", f"{g['external_height_m']:.3f} m")
 m3.metric("Concrete volume", f"{g['concrete_volume_m3']:.3f} m³")
 m4.metric("Self-weight (unfactored)", f"{loads['concrete_self_weight_kn']:,.2f} kN")
 
-tab_drawing, tab_calcs, tab_earth, tab_traffic, tab_vehicle, tab_combo, tab_solver, tab_analysis, tab_ref, tab_export, tab_notes = st.tabs([
+tab_drawing, tab_calcs, tab_earth, tab_traffic, tab_vehicle, tab_combo, tab_solver, tab_analysis, tab_uls, tab_ref, tab_export, tab_notes = st.tabs([
     "📐 Drawing", "🧮 Calculations", "🌍 Earth pressure", "🚛 Braking forces",
     "🚚 Vehicle axles & dispersion", "🧾 Factor sets", "🧱 In-app frame solver", "🏗️ STAAD result comparison",
-    "📋 Reference comparison", "📥 Downloads", "ℹ️ Roadmap"
+    "🛡️ ULS checks (Excel Design)", "📋 Reference comparison", "📥 Downloads", "ℹ️ Roadmap"
 ])
 
 with tab_drawing:
@@ -427,18 +505,30 @@ with tab_traffic:
 
 with tab_vehicle:
     st.subheader("Stage 3 — Wheel loads, impact and effective-width dispersion")
-    st.caption("Source Excel: Input!C19:D25 wheel pattern; J13 impact; N11:O30 alpha table; C15, I19 and J19 effective width and line load. Units: tf and tf/m.")
+    st.caption('Selected: ' + case_names[vehicle_code] + '. Workbook Input sections: '
+               '70R(W) rows 19+, 40T row 586+, 70R(T) row 961+, 385T row 1375+; '
+               'Custom remains editable. Values are workbook-reference only.')
     a,b,c,d=st.columns(4)
     a.metric("Effective span", f"{vehicle_results['effective_span_m']:.3f} m")
     b.metric("Impact factor", f"{vehicle_results['impact_factor']:.3f}")
     c.metric("Alpha (effective width)", f"{vehicle_results['alpha']:.3f}")
-    d.metric("Active wheels", f"{vehicle_results['active_axle_count']}")
+    d.metric('Active load stations', f"{vehicle_results['active_axle_count']}")
+    st.metric('Gross reference vehicle load', f"{vehicle_results['vehicle_gross_pattern_load_tf']:.1f} tf")
     st.latex(r"b_1=b_{tyre}+2s(t_{wearing}+h_{fill})")
     st.latex(r"b_{eff}=\alpha a(1-a/l_0)")
     st.latex(r"q_{strip}=P_{wheel}I/b_{final}")
     st.dataframe(vehicle_results['axles'],use_container_width=True,hide_index=True)
     st.caption("Inactive wheels are outside the selected effective span. These are individual spreadsheet strip-load intensities, not verified beam/plate reactions or design effects.")
-    st.info("Workbook check: leading wheel at x=0 m ≈ 6.810897 tf/m; at x=0.25 m ≈ 5.195599 tf/m for default data. Comparison with the source is meaningful only for the original 3 × 3 m, 12 m configuration.")
+    workbook_checks = {
+        '70rw': '70R(W), x=0.25 m: first station ≈ 5.195599 tf/m',
+        '40t': '40T, x=0.25 m: first station ≈ 6.112469 tf/m',
+        '70rt': '70R(T), x=0.25 m: first equivalent station ≈ 4.278729 tf/m',
+        'sv385': '385T, x=1.0 m: first trailer axle ≈ 3.272727 tf/m',
+        'custom': 'Custom Pattern: no verified Excel reference output',
+    }
+    st.info('Reference check, ONLY for the unchanged default geometry/preset: '
+            + workbook_checks[vehicle_code])
+    st.warning(vehicle_results['status'])
     with st.expander("Position screening sweep — reference only",expanded=True):
         screening = result['vehicle_position_screening']
         st.write(f"**{screening['positions_checked']}** sampled leading-wheel positions at **{screening['position_step_m']:.2f} m** intervals")
@@ -448,7 +538,9 @@ with tab_vehicle:
         st.line_chart(screening['samples'], x='lead_position_m',
                       y='sum_strip_intensities_tf_m')
         st.warning("Summed strip intensities are a SCREENING metric, not design reaction, bending moment or shear.")
-    st.warning("Class 40T, Class A, contact patch dispersions in all directions, approved vehicle-placement envelopes and IRC clause validation are still NOT independently reproduced. Use custom data only when provided by the structural engineer.")
+    st.warning('All four source-workbook vehicle types and Custom Pattern are now selectable. '
+               'This reproduces selected arithmetic; actual transverse placements, vehicle '
+               'envelopes, complete IRC combinations and design safety remain unverified.')
 
 with tab_combo:
     st.subheader("Stage 3 — User-defined component load factor set")
@@ -586,6 +678,187 @@ with tab_analysis:
                "There is NO direct STAAD connection, independent model verification, approved ULS/SLS "
                "capacity, shear, crack-width, reinforcement, BBS or BOQ.")
 
+with tab_uls:
+    st.subheader("Stage 5 — Ultimate Limit State (ULS) checks")
+    st.caption("Exact source: **original Excel → Design worksheet → rows 52–166**. "
+               "These are the source case's flexure / distribution steel / shear / shear-stirrup calculations.")
+    st.warning(
+        "**NOT a live IRC-approved ULS design.** Excel moments and shears are old reference "
+        "values, not recalculated from your current vehicle class, factor set, or experimental "
+        "FEM solver. Without approved ULS member force envelopes, these checks cannot certify a culvert."
+    )
+    source_uls = result["uls_design"]
+    if not source_uls["reference_geometry_matches"]:
+        st.error("Current geometry, fill, material or haunch inputs differ from the original "
+                 "1 × 3 × 3 M35/Fe500 workbook. The displayed reference demand and effective "
+                 "depths no longer represent this altered design. Get updated ULS results first.")
+    else:
+        st.info("Geometry matches the workbook's nominal reference case. This does NOT mean "
+                "the vehicle loads or STAAD analysis have been verified.")
+    st.markdown("#### Optional — edit engineering inputs for a what-if check")
+    st.caption("Editable tables start from workbook cached values. You may edit moments, shears, "
+               "effective depths and reinforcement. Changes are **manual trial values**, not FEM results.")
+    with st.expander("Edit flexure demands, effective depths and main steel (Design rows 57–76)"):
+        flex_input = [
+            {"row":r["row"], "member":r["member"], "location":r["location"],
+             "moment_tf_m_per_m":r["moment_tf_m_per_m"],
+             "effective_depth_mm":r["effective_depth_mm"],
+             "provided_as_mm2_per_m":r["provided_as_mm2_per_m"]}
+            for r in source_uls["flexure"]
+        ]
+        flex_input = st.data_editor(
+            flex_input, key="stage5_flexure_editor", hide_index=True,
+            disabled=["row", "member", "location"], use_container_width=True,
+            num_rows="fixed",
+        )
+    with st.expander("Edit shear demands, longitudinal steel and effective depths (Design rows 117–136)"):
+        shear_input = [
+            {"row":r["row"], "member":r["member"], "location":r["location"],
+             "design_shear_tf_per_m":r["design_shear_tf_per_m"],
+             "effective_depth_mm":r["effective_depth_mm"],
+             "provided_as_mm2_per_m":r["provided_as_mm2_per_m"]}
+            for r in source_uls["shear_without_stirrups"]
+        ]
+        shear_input = st.data_editor(
+            shear_input, key="stage5_shear_editor", hide_index=True,
+            disabled=["row", "member", "location"], use_container_width=True,
+            num_rows="fixed",
+        )
+    with st.expander("Edit distribution reinforcement (Design rows 93–102)"):
+        distrib_input = [
+            {"row":r["row"], "member":r["member"], "location":r["location"],
+             "required_as_mm2_per_m":r["required_as_mm2_per_m"],
+             "diameter_mm":r["diameter_mm"], "spacing_mm":r["spacing_mm"]}
+            for r in source_uls["distribution"]
+        ]
+        distrib_input = st.data_editor(
+            distrib_input, key="stage5_distribution_editor", hide_index=True,
+            disabled=["row", "member", "location"], use_container_width=True,
+            num_rows="fixed",
+        )
+    with st.expander("Edit shear reinforcement / stirrups (Design rows 150–151)"):
+        stirrup_input = [
+            {"row":r["row"], "member":r["member"], "location":r["location"],
+             "legs":r["legs"], "bar_dia_mm":r["bar_dia_mm"],
+             "spacing_mm":r["spacing_mm"], "theta_deg":r["theta_deg"]}
+            for r in source_uls["stirrups"]
+        ]
+        stirrup_input = st.data_editor(
+            stirrup_input, key="stage5_stirrup_editor", hide_index=True,
+            disabled=["row", "member", "location"], use_container_width=True,
+            num_rows="fixed",
+        )
+
+    def _edited_records(value):
+        return value.to_dict("records") if hasattr(value, "to_dict") else list(value)
+
+    override_fields = {
+        'flexure': (flex_input, ('moment_tf_m_per_m', 'effective_depth_mm', 'provided_as_mm2_per_m')),
+        'shear': (shear_input, ('design_shear_tf_per_m', 'effective_depth_mm', 'provided_as_mm2_per_m')),
+        'distribution': (distrib_input, ('required_as_mm2_per_m', 'diameter_mm', 'spacing_mm')),
+        'stirrup': (stirrup_input, ('legs', 'bar_dia_mm', 'spacing_mm', 'theta_deg')),
+    }
+    overrides = {}
+    changes = 0
+    try:
+        for group, (edited, keys) in override_fields.items():
+            ref_name = {'shear':'shear_without_stirrups', 'stirrup':'stirrups'}.get(group, group)
+            original_by_row = {r['row']:r for r in source_uls[ref_name]}
+            for row in _edited_records(edited):
+                excel_row = int(row['row'])
+                if excel_row not in original_by_row:
+                    raise ValueError(f"Unexpected ULS row {excel_row} in editor")
+                new = {}
+                for field in keys:
+                    raw = row[field]
+                    if raw is None or str(raw).strip() == '':
+                        raise ValueError(f"Row {excel_row}: {field} is blank")
+                    new[field] = int(raw) if field == 'legs' else float(raw)
+                    if not math.isclose(float(new[field]), float(original_by_row[excel_row][field]),
+                                        abs_tol=1e-9, rel_tol=0):
+                        changes += 1
+                if new:
+                    overrides[excel_row] = new
+        uls = calculate_uls_design(inputs, overrides)
+        result['uls_design'] = uls  # JSON & CSV downloads use precisely these edited results
+    except (ValueError, TypeError, KeyError) as exc:
+        st.error(f"Invalid editable ULS input: {exc}")
+        st.stop()
+
+    if changes:
+        st.info(f"{changes} input value(s) changed from original Excel. All outputs below and "
+                "the CSV/JSON downloads use your current trial values.")
+    a1, a2, a3 = st.columns(3)
+    a1.metric("Flexural sections evaluated", len(uls['flexure']))
+    a2.metric("Shear locations evaluated", len(uls['shear_without_stirrups']))
+    a3.metric("ULS rows needing review", uls['review_count'])
+    st.caption("A row marked PASS means ONLY the listed Excel-reference arithmetic is satisfied. "
+               "It is NOT an approved section design or structural safety certification.")
+
+    sec_flex, sec_dist, sec_shear, sec_links, sec_audit = st.tabs([
+        "Flexural strength", "Distribution steel", "Shear without stirrups", "Stirrup design", "Source audit"
+    ])
+    with sec_flex:
+        st.latex(r"A_{s,req}=\frac{0.5 f_{ck}}{f_y}\left[1-\sqrt{1-\frac{4.6 M_u}{100 f_{ck} d^2}}\right]d\,10^6")
+        st.caption("Formula shown schematically: the code uses d in metres inside the root and "
+                   "tf·m/m moments, matching the workbook's explicit conversion constants.")
+        flex_display = [{"Excel row":r['row'], "Member":r['member'], "Location":r['location'],
+                         "Mu (tf·m/m)":round(r['moment_tf_m_per_m'], 3),
+                         "d (mm)":round(r['effective_depth_mm'], 1),
+                         "d_min (mm)":round(r['d_min_mm'], 1),
+                         "As req (mm²/m)":None if r['as_required_mm2_per_m'] is None else round(r['as_required_mm2_per_m'], 2),
+                         "As provided (mm²/m)":round(r['provided_as_mm2_per_m'], 2),
+                         "As min (mm²/m)":round(r['as_min_mm2_per_m'], 2),
+                         "Status":r['status']} for r in uls['flexure']]
+        st.dataframe(flex_display, hide_index=True, use_container_width=True)
+    with sec_dist:
+        st.latex(r"A_{s,provided}=\frac{\pi\phi^2}{4}\frac{1000}{s}")
+        st.dataframe([{"Row":r['row'], "Member":r['member'], "Location":r['location'],
+                       "Required (mm²/m)":round(r['required_as_mm2_per_m'],2),
+                       "Provided (mm²/m)":round(r['provided_as_mm2_per_m'],2),
+                       "Diameter (mm)":r['diameter_mm'], "Spacing (mm)":r['spacing_mm'],
+                       "Status":r['status']} for r in uls['distribution']],
+                     hide_index=True, use_container_width=True)
+    with sec_shear:
+        st.caption("Reproduces Design worksheet's rho, k, Vmin, VRdc and compare-with-design-shear. "
+                   "Compression stress set to zero, following the original reference rows.")
+        st.dataframe([{"Row":r['row'], "Member":r['member'], "Location":r['location'],
+                       "Vu (tf/m)":round(r['design_shear_tf_per_m'],3),
+                       "Vmin (tf/m)":round(r['v_min_tf_per_m'],3),
+                       "VRdc (tf/m)":round(r['resistance_tf_per_m'],3),
+                       "Stirrups required":r['stirrups_required']}
+                      for r in uls['shear_without_stirrups']],
+                     hide_index=True, use_container_width=True)
+    with sec_links:
+        st.dataframe([{"Excel row":r['row'], "Location":r['location'],
+                       "Vu (tf/m)":round(r['design_shear_tf_per_m'],3),
+                       "VRds (tf/m)":round(r['vrd_s_tf_per_m'],3),
+                       "Spacing (mm)":r['spacing_mm'],
+                       "Max spacing (mm)":round(r['max_spacing_mm'],1),
+                       "Strength":r['shear_strength_check'],
+                       "Spacing":r['stirrup_spacing_check'],
+                       "Final review":r['status']} for r in uls['stirrups']],
+                     hide_index=True, use_container_width=True)
+        if any(r['spacing_mm'] > r['max_spacing_mm'] for r in uls['stirrups']):
+            st.error("**Source workbook inconsistency:** Design!150 and Design!151 mark shear "
+                     "reinforcement as OK, but their provided 225 mm spacing exceeds the "
+                     "worksheet's own spacing limits (183 / 145.5 mm). This check is "
+                     "therefore flagged for the engineer, even though strength arithmetic may pass.")
+    with sec_audit:
+        st.json({"source":uls['source'], "reference_geometry_matches":uls['reference_geometry_matches'],
+                 "skipped_error_or_nonapplicable_rows":uls['skipped_nonapplicable_rows']})
+        for msg in uls['reference_warnings'] + uls['limitations']:
+            st.warning(msg)
+    try:
+        chart = draw_uls_reference_comparison(uls)
+        chart_png = figure_to_png(chart)
+        plt.close(chart)
+        st.image(chart_png, use_container_width=True)
+        st.download_button("Download ULS arithmetic chart (PNG)", chart_png,
+                           file_name="uls_reference_checks.png", mime="image/png", key="stage5_uls_chart_download")
+    except Exception as err:
+        st.error(f"ULS reference chart could not be rendered: {err}")
+
 with tab_ref:
     st.subheader("Reference design note comparison — example case only")
     st.caption("The design note reports component dead loads in tonnes (t) using 2.50 t/m³ concrete density. These are reference quantities, not independently verified design results.")
@@ -645,13 +918,17 @@ with tab_notes:
     st.markdown("**Stage 1:** Geometry, haunch quantities and preliminary concrete self-weight.")
     st.markdown("**Stage 2:** Earth, surcharge and fill pressure magnitudes. Stage 4B now applies "
                 "assumed pressure distributions to the frame members, including vertical fill over the top slab.")
-    st.markdown("**Stage 3:** Workbook-reference wheel pattern, impact, dispersion, "
-                "braking reference and editable component factors. Stage 4B applies these to the frame.")
+    st.markdown('**Stage 3:** Four workbook-derived vehicle presets (70R wheeled, 40T bogie, '
+                '70R tracked equivalent, 385T SV) plus Custom Pattern. Reference impact/dispersion '
+                'are computed separately. The Stage 4B mapping is not valid for every pattern.')
     st.markdown("**Stage 4A:** Engineer-mapped STAAD CSV result comparison with reported design-note moments/shears.")
     st.markdown("**Stage 4B:** Experimental Python plane-frame FEM with beam-column stiffness, "
                 "soil springs, concrete dead, lateral soil/surcharge/cushion, vertical fill, "
                 "axle strip loads and braking load application, plus a combined factor-set solve. "
                 "There is no direct STAAD connection, no validated IRC design combination, and no safety certification.")
+    st.markdown("**Stage 5 ULS:** Excel Design!52:166 reference checks now calculate flexure, "
+                "distribution reinforcement, nominal shear capacity and stirrup checks. "
+                "Demands are still cached reference values, not approved envelopes.")
     st.markdown("**Pending:** Verify frame geometry, loading datum, soil interaction, support arrangement, "
                 "wheel distribution and sign conventions against an actual STAAD model; "
                 "independently benchmark/mesh-refine the solver; IRC ULS/SLS combinations and "
