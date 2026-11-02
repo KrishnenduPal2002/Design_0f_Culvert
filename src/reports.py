@@ -123,6 +123,21 @@ def to_csv_bytes(result: dict) -> bytes:
                         writer.writerow(["uls_" + group, label + " / " + name, val, "ULS trial; " + uls["demand_source"]])
         for warning in uls["limitations"]:
             writer.writerow(["uls_limitations", "condition", warning, ""])
+    if "sls_design" in result:
+        sls = result["sls_design"]
+        writer.writerow(["sls", "demand_source", sls["demand_source"], "not verified design demands"])
+        writer.writerow(["sls", "reference_geometry_matches", sls["reference_geometry_matches"], ""])
+        writer.writerow(["sls", "permissible_crack_width_mm", sls["permissible_crack_width_mm"], "mm; engineer supplied if set"])
+        writer.writerow(["sls", "rare_review_count", sls["rare_review_count"], "stress status"])
+        writer.writerow(["sls", "crack_review_count", sls["crack_review_count"], "only if limit set"])
+        for r in sls["sections"]:
+            label = f'{r["section_id"]} / {r["member"]} / {r["location"]}'
+            for k in ("rare_moment_tf_m_per_m", "quasi_moment_tf_m_per_m", "provided_as_mm2_per_m", "effective_depth_mm",
+                      "concrete_stress_mpa", "steel_stress_mpa", "concrete_limit_mpa", "steel_limit_mpa",
+                      "crack_width_mm", "stress_status", "crack_status"):
+                writer.writerow(["sls_section", f"{label} / {k}", r[k], "reference serviceability check"])
+        for note in sls["limitations"]:
+            writer.writerow(["sls_limitations", "condition", note, ""])
     writer.writerow(["status", "structural_design_status", result["structural_design_status"], ""])
     for i, limitation in enumerate(result.get("limitations", []), 1):
         writer.writerow(["limitations", i, limitation, ""])

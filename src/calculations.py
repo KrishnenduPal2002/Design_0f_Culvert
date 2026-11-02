@@ -27,6 +27,7 @@ from .load_combinations import CombinationInputs, calculate_component_factors
 from .structural_analysis import is_original_geometry, build_structural_analysis_snapshot
 from .frame_solver import FrameOptions, run_frame_analysis
 from .uls_design import calculate_uls_design
+from .sls_design import calculate_sls_design
 
 
 def calculate_preview(
@@ -40,6 +41,9 @@ def calculate_preview(
     run_frame: bool = False,
     uls_design_overrides: dict[int, dict] | None = None,
     uls_design_demand_source: str = "Original Excel ULS reference (not verified against active loads)",
+    sls_design_overrides: dict[str, dict] | None = None,
+    sls_demand_source: str = "Original Excel SLS reference (not verified against active loads)",
+    sls_design_options: dict | None = None,
 ) -> dict:
     """Return one consistent snapshot of the available analysis stages.
 
@@ -106,7 +110,7 @@ def calculate_preview(
             "Stage 3 includes workbook-reference 70R(W), 40T Bogie, equivalent 70R tracked, 385T SV and Custom load stations; physical placements and code rules are not fully verified",
             "Factors are user-supplied component multipliers, NOT approved IRC ULS/SLS load combinations",
             "No member forces, reactions, bending moments, or shears are computed from vehicle loads",
-            "ULS Excel-reference strength checks implemented; no validated ULS demand envelopes, SLS or detailing checks",
+            "ULS reference checks and SLS rare/quasi reference checks are implemented; no validated design load envelopes or detailing checks",
             "No BBS, BOQ or construction-ready reinforcement details",
             "No approval or certification of structural safety",
             "Volumes include four simplified triangular haunches but omit barriers and other special geometry; haunch area differs from the design note",
@@ -145,7 +149,7 @@ def calculate_preview(
             "Stage 3 70R(W), 40T and custom wheel strip-loads can be applied to the prototype frame; 70R tracked and 385T require separate verified structural mapping and are not solved in the app",
             "Applied factor sets yield combined frame actions, but are USER CONFIGURED, not code-approved ULS/SLS combinations",
             "Frame member-end forces, moments and support reactions are calculated for this simplified model; no verified force envelopes",
-            "Excel-reference ULS flexure/shear checks available, but not validated against active solver loads; no SLS, crack width or certified reinforcement design",
+            "Excel-reference ULS and SLS checks available, but not validated against active solver loads; no certified reinforcement design",
             "No BBS, BOQ or construction-ready reinforcement details",
             "No approval or certification of structural safety",
             "Haunch mass is approximated at frame corners; haunch stiffness and barriers are omitted; design-note area discrepancy unresolved",
@@ -158,6 +162,16 @@ def calculate_preview(
     result["limitations"].append(
         f"Stage 5 ULS demand source: {uls_design_demand_source}. Design forces, "
         "section mappings and steel details require engineer review; unvalidated FEM is not approved input."
+    )
+    # Stage 6 SLS is an independent serviceability calculation. It shares the
+    # materials/section properties but never substitutes ULS factored actions.
+    result["sls_design"] = calculate_sls_design(
+        inputs, sls_design_overrides, demand_source=sls_demand_source,
+        **(sls_design_options or {}),
+    )
+    result["limitations"].append(
+        "Stage 6 SLS uses selected rare/quasi service moments and original section properties; "
+        "not a validated design envelope. Crack-width acceptance needs an engineer-approved limit."
     )
     if structural_records:
         result["limitations"].append(

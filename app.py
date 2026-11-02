@@ -34,8 +34,9 @@ from src.frame_solver import FrameOptions
 from src.uls_design import calculate_uls_design, reference_table
 from src.uls_inputs import uls_demands_csv_template, parse_uls_demands_csv
 from src.drawings import draw_uls_reference_comparison
+from src.sls_design import calculate_sls_design, sls_demands_csv_template, parse_sls_demands_csv, steel_details_from_uls
 
-st.set_page_config(page_title="RCC Box Culvert | Stage 5 ULS Inputs & Checks", page_icon="🏗️", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="RCC Box Culvert | ULS & SLS Checks", page_icon="🏗️", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
 <style>
@@ -45,7 +46,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🏗️ RCC Box Culvert — Loads, Frame Analysis & ULS Checks")
+st.title("🏗️ RCC Box Culvert — Loads, Frame Analysis, ULS & SLS")
 st.caption("Single-cell box culvert · editable geometry · four optional triangular internal haunches")
 st.warning(
     "**Unverified engineering prototype — NOT for construction.** Stage 4B includes an "
@@ -54,7 +55,7 @@ st.warning(
     "forces and combined effects, but **is not STAAD**, does not establish approved "
     "IRC load factors, and is **not validated for structural design**. The original "
     "haunch-volume discrepancy and structural modelling assumptions remain unresolved. "
-    "Stage 5 ULS checks accept original-workbook, editable manual, or engineer-mapped section demands. "
+    "Stage 5 ULS and Stage 6 SLS use separate force sources and editable inputs. "
     "They do NOT automatically verify the current vehicle or experimental solver envelopes."
 )
 
@@ -76,9 +77,9 @@ with st.sidebar:
     st.subheader("Other parameters")
     fill = st.number_input("Earth cushion (m) — reference only", min_value=0.0, value=0.30, step=0.05, format="%.3f")
     gamma = st.number_input("Concrete unit weight (kN/m³)", min_value=0.01, value=25.0, step=0.5, format="%.2f")
-    concrete_grade = st.selectbox("Concrete grade for ULS equations", ["M35", "M25", "M30", "M40", "M45"], index=0)
-    steel_grade = st.selectbox("Steel grade for ULS equations", ["Fe500", "Fe415", "Fe550"], index=0)
-    st.caption("Grades feed ULS section equations. Moments, effective depths and reinforcement require separate verified values when the design changes.")
+    concrete_grade = st.selectbox("Concrete grade for ULS / SLS equations", ["M35", "M25", "M30", "M40", "M45"], index=0)
+    steel_grade = st.selectbox("Steel grade for ULS / SLS equations", ["Fe500", "Fe415", "Fe550"], index=0)
+    st.caption("Grades feed ULS / SLS equations. Both checks require independently verified demands and reinforcement details.")
     st.subheader("Stage 2 — Soil and surcharge")
     k0 = st.number_input("Earth pressure coefficient K₀", min_value=0.0, max_value=1.0, value=0.50, step=0.05, format="%.3f")
     soil_density = st.number_input("Backfill density (tf/m³)", min_value=0.01, value=2.0, step=0.1, format="%.3f")
@@ -358,10 +359,10 @@ m2.metric("External height", f"{g['external_height_m']:.3f} m")
 m3.metric("Concrete volume", f"{g['concrete_volume_m3']:.3f} m³")
 m4.metric("Self-weight (unfactored)", f"{loads['concrete_self_weight_kn']:,.2f} kN")
 
-tab_drawing, tab_calcs, tab_earth, tab_traffic, tab_vehicle, tab_combo, tab_solver, tab_analysis, tab_uls, tab_ref, tab_export, tab_notes = st.tabs([
+tab_drawing, tab_calcs, tab_earth, tab_traffic, tab_vehicle, tab_combo, tab_solver, tab_analysis, tab_uls, tab_sls, tab_ref, tab_export, tab_notes = st.tabs([
     "📐 Drawing", "🧮 Calculations", "🌍 Earth pressure", "🚛 Braking forces",
     "🚚 Vehicle axles & dispersion", "🧾 Factor sets", "🧱 In-app frame solver", "🏗️ STAAD result comparison",
-    "🛡️ ULS design checks", "📋 Reference comparison", "📥 Downloads", "ℹ️ Roadmap"
+    "🛡️ ULS design checks", "🔎 SLS checks", "📋 Reference comparison", "📥 Downloads", "ℹ️ Roadmap"
 ])
 
 with tab_drawing:
@@ -929,6 +930,165 @@ with tab_uls:
     except Exception as err:
         st.error(f"ULS chart could not be rendered: {err}")
 
+with tab_sls:
+    st.subheader("Stage 6 — Serviceability Limit State (SLS)")
+    st.info(
+        "SLS uses **separate rare-combination and quasi-permanent bending moments**. "
+        "It shares section geometry, material grades and reinforcement data with ULS, "
+        "but it **does not use ULS factored moments**. Original Excel values are reference inputs, "
+        "not live results for the currently selected vehicle and geometry."
+    )
+    sls_source_mode = st.radio(
+        "SLS demand source",
+        ["Original Excel reference", "Manual engineer-entered demands", "Engineer-mapped SLS force CSV"],
+        horizontal=False, key="sls_source_mode",
+    )
+    st.download_button(
+        "Download SLS force template (CSV)", sls_demands_csv_template(),
+        file_name="sls_forces_template.csv", mime="text/csv", key="sls_force_template",
+    )
+    source_name = "Original Excel SLS reference moments (not verified for changed dimensions or loading)"
+    demand_overrides = {}
+    if sls_source_mode == "Manual engineer-entered demands":
+        source_name = "Engineer-entered manual SLS moments (requires review)"
+    if sls_source_mode == "Engineer-mapped SLS force CSV":
+        source_name = "Uploaded engineer-mapped SLS moments (not independently verified)"
+        file = st.file_uploader("Upload complete SLS force CSV", type="csv", key="sls_csv_upload")
+        if file is None:
+            st.info("Upload an SLS force file containing every required section. No reference demands are silently substituted.")
+            st.stop()
+        try:
+            demand_overrides = parse_sls_demands_csv(file.getvalue())
+        except (ValueError, TypeError) as exc:
+            st.error(f"Invalid SLS force file: {exc}")
+            st.stop()
+
+    with st.expander("SLS material constants and acceptance criteria", expanded=True):
+        st.caption("Concrete and steel grades come from the sidebar. The values below are the reference-section assumptions, not automatic IRC approvals.")
+        mat1, mat2, mat3 = st.columns(3)
+        with mat1:
+            sls_es = st.number_input("Steel modulus Es (GPa)", min_value=1.0, value=200.0, step=5.0, key="sls_es")
+            sls_ecm = st.number_input("Concrete modulus Ecm (GPa)", min_value=1.0, value=32.30824972296583, step=0.5, key="sls_ecm")
+        with mat2:
+            sls_kt = st.number_input("Crack parameter kt", min_value=0.0, value=0.5, step=0.05, key="sls_kt")
+            sls_k1 = st.number_input("Bond parameter k1", min_value=0.01, value=0.8, step=0.05, key="sls_k1")
+        with mat3:
+            sls_k2 = st.number_input("Strain parameter k2", min_value=0.01, value=0.5, step=0.05, key="sls_k2")
+            use_crack_limit = st.checkbox("Specify engineer-approved permissible crack width", value=False, key="sls_enable_crack_limit")
+            sls_crack_limit = st.number_input("Permissible crack width (mm)", min_value=0.01, value=0.30, step=0.05, disabled=not use_crack_limit, key="sls_crack_limit")
+        if not use_crack_limit:
+            st.caption("No crack-width PASS or FAIL will be reported until a verified permissible limit is set.")
+
+    share_with_uls = st.checkbox(
+        "Use current ULS effective depths and provided reinforcement as SLS starting values",
+        value=False, key="sls_uls_shared_steel",
+    )
+    if share_with_uls:
+        source_name += "; optionally copied current ULS section d/As (review required)"
+        st.warning("Only section depth-to-steel mapping is shared—not ULS bending moments or shears. "
+                   "Ask your sir to confirm the same reinforcement faces are applicable to SLS.")
+        for sid, shared in steel_details_from_uls(result["uls_design"]).items():
+            demand_overrides.setdefault(sid, {}).update(shared)
+
+    sls_options = {
+        "es_gpa": sls_es, "ecm_gpa": sls_ecm,
+        "k_t": sls_kt, "k_1": sls_k1, "k_2": sls_k2,
+        "permissible_crack_width_mm": sls_crack_limit if use_crack_limit else None,
+    }
+    try:
+        base_sls = calculate_sls_design(inputs, demand_overrides, demand_source=source_name, **sls_options)
+        fields = [
+            "rare_moment_tf_m_per_m", "quasi_moment_tf_m_per_m", "section_depth_mm",
+            "effective_depth_mm", "provided_as_mm2_per_m", "equivalent_bar_diameter_mm", "cover_mm",
+        ]
+        records = []
+        for section in base_sls["sections"]:
+            records.append({
+                "section_id": section["section_id"], "member": section["member"],
+                "location": section["location"],
+                **{field: section[field] for field in fields},
+            })
+        with st.expander("Edit service moments, section depths, cover and reinforcement", expanded=True):
+            st.caption("Rare and quasi moments are independent SLS inputs. Check their source, sign and governing reinforcement face with your sir.")
+            editor_tag = "sls_editor_" + sls_source_mode + ("_with_uls_steel" if share_with_uls else "_independent")
+            edited = st.data_editor(
+                records, hide_index=True, num_rows="fixed", use_container_width=True,
+                disabled=["section_id", "member", "location"], key=editor_tag,
+                column_config={
+                    "section_id": st.column_config.TextColumn("Section ID"),
+                    "member": st.column_config.TextColumn("Member"),
+                    "location": st.column_config.TextColumn("Design location"),
+                    "rare_moment_tf_m_per_m": st.column_config.NumberColumn("Rare moment (tf·m/m)", format="%.3f"),
+                    "quasi_moment_tf_m_per_m": st.column_config.NumberColumn("Quasi moment (tf·m/m)", format="%.3f"),
+                    "section_depth_mm": st.column_config.NumberColumn("Section depth (mm)", format="%.1f"),
+                    "effective_depth_mm": st.column_config.NumberColumn("Effective depth (mm)", format="%.1f"),
+                    "provided_as_mm2_per_m": st.column_config.NumberColumn("Provided steel (mm²/m)", format="%.2f"),
+                    "equivalent_bar_diameter_mm": st.column_config.NumberColumn("Bar diameter (mm)", format="%.2f"),
+                    "cover_mm": st.column_config.NumberColumn("Cover (mm)", format="%.1f"),
+                },
+            )
+        edited_rows = edited.to_dict("records") if hasattr(edited, "to_dict") else list(edited)
+        user_overrides = {}
+        changes = 0
+        originals = {r["section_id"]: r for r in records}
+        for row in edited_rows:
+            ident = row["section_id"]
+            if ident not in originals:
+                raise ValueError("Unknown SLS section identifier")
+            updated = {}
+            for field in fields:
+                num = float(row[field])
+                if not math.isfinite(num):
+                    raise ValueError(f"Non-finite SLS input for {ident} / {field}")
+                updated[field] = num
+                if not math.isclose(num, originals[ident][field], rel_tol=0, abs_tol=1e-9):
+                    changes += 1
+            user_overrides[ident] = updated
+        if changes and sls_source_mode == "Original Excel reference":
+            source_name = "Original Excel SLS reference edited by user (trial inputs)"
+        sls = calculate_sls_design(inputs, user_overrides, demand_source=source_name, **sls_options)
+        sls["input_mode"] = sls_source_mode
+        sls["editable_values_changed"] = changes
+        result["sls_design"] = sls
+        result["limitations"] = [v for v in result["limitations"] if not v.startswith("Stage 6 SLS demand source:")]
+        result["limitations"].append(f"Stage 6 SLS demand source: {source_name}. No certified verification of SLS loads or crack limit.")
+    except (ValueError, TypeError, KeyError, ZeroDivisionError) as exc:
+        st.error(f"Invalid SLS input: {exc}")
+        st.stop()
+
+    st.caption(f"**Current SLS demand source:** {sls['demand_source']}")
+    met1, met2, met3 = st.columns(3)
+    met1.metric("Serviceability sections", len(sls["sections"]))
+    met2.metric("Stress checks needing review", sls["rare_review_count"])
+    met3.metric("Crack checks needing review", sls["crack_review_count"] if use_crack_limit else "Limit not set")
+    rare_view, crack_view, audit_view = st.tabs(["Rare-combination stresses", "Quasi-permanent crack widths", "Source and limitations"])
+    with rare_view:
+        st.dataframe([{
+            "Member": row["member"], "Location": row["location"],
+            "Rare moment (tf·m/m)": round(row["rare_moment_tf_m_per_m"], 3),
+            "Concrete stress (MPa)": round(row["concrete_stress_mpa"], 3),
+            "Concrete limit (MPa)": round(row["concrete_limit_mpa"], 3),
+            "Steel stress (MPa)": round(row["steel_stress_mpa"], 3),
+            "Steel limit (MPa)": round(row["steel_limit_mpa"], 3),
+            "Stress check": row["stress_status"],
+        } for row in sls["sections"]], hide_index=True, use_container_width=True)
+    with crack_view:
+        st.dataframe([{
+            "Member": row["member"], "Location": row["location"],
+            "Quasi moment (tf·m/m)": round(row["quasi_moment_tf_m_per_m"], 3),
+            "Crack width (mm)": round(row["crack_width_mm"], 4),
+            "Maximum crack spacing (mm)": round(row["maximum_crack_spacing_mm"], 1),
+            "Permissible width (mm)": row["permissible_crack_width_mm"],
+            "Crack check": row["crack_status"],
+        } for row in sls["sections"]], hide_index=True, use_container_width=True)
+    with audit_view:
+        st.write("Source:", sls["demand_source"])
+        st.write("Original reference geometry:", "Matches" if sls["reference_geometry_matches"] else "Differs")
+        for limitation in sls["limitations"]:
+            st.warning(limitation)
+    st.caption("Stress PASS means only that the translated reference equations are below their reported limits. "
+               "It does not approve the design, section properties, vehicle loads or analysis model.")
+
 with tab_ref:
     st.subheader("Reference design note comparison — example case only")
     st.caption("The design note reports component dead loads in tonnes (t) using 2.50 t/m³ concrete density. These are reference quantities, not independently verified design results.")
@@ -996,13 +1156,15 @@ with tab_notes:
                 "soil springs, concrete dead, lateral soil/surcharge/cushion, vertical fill, "
                 "axle strip loads and braking load application, plus a combined factor-set solve. "
                 "There is no direct STAAD connection, no validated IRC design combination, and no safety certification.")
-    st.markdown("**Stage 5 ULS:** Excel Design!52:166 reference checks now calculate flexure, "
+    st.markdown("**Stage 5 ULS:** Reference checks now calculate flexure, "
                 "distribution reinforcement, nominal shear capacity and stirrup checks. "
                 "Demands are still cached reference values, not approved envelopes.")
+    st.markdown("**Stage 6 SLS:** Original design-sheet short-term rare stress and quasi-permanent crack-width checks; "
+                "editable trial inputs and complete engineer-mapped SLS demands. Long-term and deflection remain pending.")
     st.markdown("**Pending:** Verify frame geometry, loading datum, soil interaction, support arrangement, "
                 "wheel distribution and sign conventions against an actual STAAD model; "
                 "independently benchmark/mesh-refine the solver; IRC ULS/SLS combinations and "
-                "capacity, cracking, shear, reinforcement, BBS and BOQ.")
+                "structural design capacity, long-term SLS, deflection, BBS and BOQ.")
     st.subheader("Engineering work still required")
     for limitation in result["limitations"]:
         st.write("•", limitation)
