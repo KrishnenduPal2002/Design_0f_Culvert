@@ -42,7 +42,7 @@ def to_csv_bytes(result: dict) -> bytes:
 
     if 'vehicle_axle_loading' in result:
         v=result['vehicle_axle_loading']
-        for k in ('effective_span_m','width_span_ratio','alpha','tyre_and_fill_spread_base_width_m',
+        for k in ('loading_type','vehicle_gross_pattern_load_tf','is_equivalent_track_discretisation','impact_source','effective_span_m','width_span_ratio','alpha','tyre_and_fill_spread_base_width_m',
                   'impact_factor','active_axle_count','sum_active_wheel_forces_tf',
                   'max_active_strip_load_intensity_tf_m'):
             writer.writerow(['vehicle_summary',k,v[k], 'Workbook reference only'])
@@ -105,6 +105,20 @@ def to_csv_bytes(result: dict) -> bytes:
             writer.writerow(["frame_foundation_spring", row["node"], row["vertical_reaction_kn_per_m"], "kN / 1m strip"])
         for limitation in frame["limitations"]:
             writer.writerow(["frame_solver_limit", "assumption", limitation, ""])
+    if "uls_design" in result:
+        uls = result["uls_design"]
+        writer.writerow(["uls", "source", uls["source"], ""]) 
+        writer.writerow(["uls", "demand_source", uls["demand_source"], ""]) 
+        writer.writerow(["uls", "reference_geometry_matches", uls["reference_geometry_matches"], ""]) 
+        writer.writerow(["uls", "review_count", uls["review_count"], "rows requiring review"])
+        for group in ("flexure", "distribution", "shear_without_stirrups", "stirrups"):
+            for r in uls[group]:
+                label = f"Design!{r['row']} {r['member']} | {r['location']}"
+                for name, val in r.items():
+                    if name not in ("member", "location", "row"):
+                        writer.writerow(["uls_" + group, label + " / " + name, val, "Excel-reference ULS only"])
+        for warning in uls["limitations"]:
+            writer.writerow(["uls_limitations", "condition", warning, ""])
     writer.writerow(["status", "structural_design_status", result["structural_design_status"], ""])
     for i, limitation in enumerate(result.get("limitations", []), 1):
         writer.writerow(["limitations", i, limitation, ""])

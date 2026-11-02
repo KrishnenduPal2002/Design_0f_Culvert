@@ -26,6 +26,7 @@ from .vehicle_loading import VehicleLoadingInputs, calculate_axle_dispersion, sc
 from .load_combinations import CombinationInputs, calculate_component_factors
 from .structural_analysis import is_original_geometry, build_structural_analysis_snapshot
 from .frame_solver import FrameOptions, run_frame_analysis
+from .uls_design import calculate_uls_design
 
 
 def calculate_preview(
@@ -38,13 +39,13 @@ def calculate_preview(
     frame_options: FrameOptions | None = None,
     run_frame: bool = False,
 ) -> dict:
-    """Return one consistent snapshot of Stages 1–3 for the Streamlit app.
+    """Return one consistent snapshot of the available analysis stages.
 
     Optional Stage 2/3 parameters default to the original design-note values,
     but their cushion and length must always match the culvert geometry.
 
-    Only *pressure magnitudes* and *braking-force summaries* are calculated;
-    load patterns, resultant member actions, and design combinations are not.
+    Structural actions are returned only when experimental frame solve is enabled;
+    otherwise this contains preview loads, not design forces.
     """
     inputs.validate()
     earth = earth_pressure_inputs or EarthPressureInputs(earth_cushion_m=inputs.earth_cushion_m)
@@ -100,10 +101,10 @@ def calculate_preview(
         "limitations": [
             "No STAAD structural analysis or equivalent frame solver",
             "Stage 2 earth/surcharge/cushion pressures are preliminary magnitudes only; no member-force application or combined effects",
-            "Stage 3 contains workbook-reference 70R(W) wheel/impact/width calculations only; other vehicle arrangements require verified axle data",
+            "Stage 3 includes workbook-reference 70R(W), 40T Bogie, equivalent 70R tracked, 385T SV and Custom load stations; physical placements and code rules are not fully verified",
             "Factors are user-supplied component multipliers, NOT approved IRC ULS/SLS load combinations",
             "No member forces, reactions, bending moments, or shears are computed from vehicle loads",
-            "No ULS/SLS, crack width, shear or reinforcement design checks",
+            "ULS Excel-reference strength checks implemented; no validated ULS demand envelopes, SLS or detailing checks",
             "No BBS, BOQ or construction-ready reinforcement details",
             "No approval or certification of structural safety",
             "Volumes include four simplified triangular haunches but omit barriers and other special geometry; haunch area differs from the design note",
@@ -139,14 +140,21 @@ def calculate_preview(
         result["limitations"] = [
             "A real Python 2D frame solver is implemented but NOT STAAD; no direct STAAD connection or independent verification",
             "Stage 2 soil/surcharge/cushion loads are applied to model members using provisional location, datum and direction assumptions",
-            "Stage 3 axle strip loads and braking are applied to the model but vehicle patterns, lever arm and full loading rules are NOT validated",
+            "Stage 3 70R(W), 40T and custom wheel strip-loads can be applied to the prototype frame; 70R tracked and 385T require separate verified structural mapping and are not solved in the app",
             "Applied factor sets yield combined frame actions, but are USER CONFIGURED, not code-approved ULS/SLS combinations",
             "Frame member-end forces, moments and support reactions are calculated for this simplified model; no verified force envelopes",
-            "No certified ULS/SLS, crack width, shear or reinforcement capacity checks",
+            "Excel-reference ULS flexure/shear checks available, but not validated against active solver loads; no SLS, crack width or certified reinforcement design",
             "No BBS, BOQ or construction-ready reinforcement details",
             "No approval or certification of structural safety",
             "Haunch mass is approximated at frame corners; haunch stiffness and barriers are omitted; design-note area discrepancy unresolved",
         ]
+    # Stage 5 ULS is a traceable translation of Design!52:166 for the original
+    # case, not a capacity check against the experimental model's member forces.
+    result["uls_design"] = calculate_uls_design(inputs)
+    result["limitations"].append(
+        "Stage 5 ULS checks use frozen Excel Design!52:166 demand and reinforcement values; "
+        "they are NOT validated against the active vehicle selection, factor set or FEM model."
+    )
     if structural_records:
         result["limitations"].append(
             "Imported member forces have not been checked for STAAD model validity, "
