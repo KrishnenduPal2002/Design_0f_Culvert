@@ -30,6 +30,7 @@ from .uls_design import calculate_uls_design
 from .sls_design import calculate_sls_design
 from .bbs import calculate_bbs
 from .boq import calculate_boq
+from .reinforcement_drawings import build_reinforcement_review
 
 
 def calculate_preview(
@@ -182,6 +183,7 @@ def calculate_preview(
     # basic culvert concrete quantities. Other BOQ rows stay reference/manual.
     result["bbs"] = calculate_bbs(bbs_bar_rows, bbs_allowance_pct)
     result["boq"] = calculate_boq(inputs, result["bbs"], boq_quantity_overrides)
+    result["reinforcement_review"] = build_reinforcement_review(inputs, result["bbs"])
     result["limitations"].append(
         "Stage 7 BBS uses editable cached BBS (2) mark lengths/counts/diameters; "
         "bar shapes, cut lengths, bends, laps and revised geometry require engineer approval."
@@ -189,6 +191,11 @@ def calculate_preview(
     result["limitations"].append(
         "Stage 7 BOQ dynamically updates core culvert concrete only; other line quantities "
         "are original Excel values or manually entered, not re-estimated from dimensions."
+    )
+    result["limitations"].append(
+        "Stage 8 drawing sheets reproduce selected bar schedules and typical layouts from the supplied "
+        "reinforcement PDF. Missing diameters, h3, bend/lap lengths, full placing geometry and "
+        "fabrication detailing require engineer checking. NOT for construction."
     )
     if structural_records:
         result["limitations"].append(

@@ -158,6 +158,15 @@ def to_csv_bytes(result: dict) -> bytes:
                              row["unit"]+"; "+row["quantity_source"]])
         for warning in q["warnings"]:
             writer.writerow(["boq_review","warning",warning,""])
+    if "reinforcement_review" in result:
+        review=result["reinforcement_review"]
+        writer.writerow(["reinforcement_drawings", "source", review["source"], "PDF sheet 3 / BBS (2)"])
+        writer.writerow(["reinforcement_drawings", "status", review["status"], "Not approved"])
+        for rec in review["schedule"]:
+            writer.writerow(["reinforcement_mark", rec["mark"], rec["status"],
+                             f"PDF Ø{rec['diameter_mm']} mm; {rec['spacing']} spacing; BBS count={rec['bbs_count']}"])
+        for item in review["issues"]:
+            writer.writerow(["reinforcement_review", "issue", item, "Engineer review required"])
     writer.writerow(["status", "structural_design_status", result["structural_design_status"], ""])
     for i, limitation in enumerate(result.get("limitations", []), 1):
         writer.writerow(["limitations", i, limitation, ""])

@@ -40,6 +40,11 @@ from src.boq import calculate_boq, reference_boq_items
 from src.quantity_exports import (bbs_template_csv, boq_template_csv, bbs_result_csv,
                                   boq_result_csv, parse_bbs_csv, parse_boq_csv)
 from src.quantity_charts import bbs_weight_chart, boq_concrete_chart
+from src.reinforcement_drawings import (
+    build_reinforcement_review, figures_for_review, figure_png_bytes,
+    make_review_pdf, export_reinforcement_dxf,
+)
+
 
 st.set_page_config(page_title="RCC Box Culvert | ULS, SLS, BBS & BOQ", page_icon="🏗️", layout="wide", initial_sidebar_state="expanded")
 
@@ -364,10 +369,10 @@ m2.metric("External height", f"{g['external_height_m']:.3f} m")
 m3.metric("Concrete volume", f"{g['concrete_volume_m3']:.3f} m³")
 m4.metric("Self-weight (unfactored)", f"{loads['concrete_self_weight_kn']:,.2f} kN")
 
-tab_drawing, tab_calcs, tab_earth, tab_traffic, tab_vehicle, tab_combo, tab_solver, tab_analysis, tab_uls, tab_sls, tab_bbs, tab_boq, tab_ref, tab_export, tab_notes = st.tabs([
+tab_drawing, tab_calcs, tab_earth, tab_traffic, tab_vehicle, tab_combo, tab_solver, tab_analysis, tab_uls, tab_sls, tab_bbs, tab_boq, tab_rebar, tab_ref, tab_export, tab_notes = st.tabs([
     "📐 Drawing", "🧮 Calculations", "🌍 Earth pressure", "🚛 Braking forces",
     "🚚 Vehicle axles & dispersion", "🧾 Factor sets", "🧱 In-app frame solver", "🏗️ STAAD result comparison",
-    "🛡️ ULS design checks", "🔎 SLS checks", "🪛 BBS steel schedule", "📦 BOQ quantities", "📋 Reference comparison", "📥 Downloads", "ℹ️ Roadmap"
+    "🛡️ ULS design checks", "🔎 SLS checks", "🪛 BBS steel schedule", "📦 BOQ quantities", "📐 Reinforcement drawings", "📋 Reference comparison", "📥 Downloads", "ℹ️ Roadmap"
 ])
 
 with tab_drawing:
@@ -1141,6 +1146,7 @@ with tab_bbs:
         bbs_result=calculate_bbs(list(index_bbs.values()),allowance)
         result['bbs']=bbs_result
         result['boq']=calculate_boq(inputs,bbs_result)
+        result['reinforcement_review']=build_reinforcement_review(inputs,bbs_result)
         bm1,bm2,bm3=st.columns(3)
         bm1.metric('Scheduled steel (before allowance)',f"{bbs_result['net_steel_kg']:,.2f} kg")
         bm2.metric('Allowance',f"{bbs_result['allowance_kg']:,.2f} kg")
@@ -1212,6 +1218,66 @@ with tab_boq:
     except (ValueError,TypeError) as exc:
         st.error(f"Cannot calculate BOQ: {exc}")
 
+with tab_rebar:
+    st.subheader("Stage 8 — Reinforcement drawing review sheets")
+    st.warning("**Drawing-review package only — NOT FOR FABRICATION OR CONSTRUCTION.** "
+               "The sheets represent reference bar locations and shapes from the supplied "
+               "reinforcement PDF, cross-checked with BBS (2). Actual bars, curtailments, "
+               "bends, lap lengths and anchorage require review by your structural engineer.")
+    st.info("The SLS calculations remain unchanged. No SLS drawings are required or added.")
+    rebar_bbs = result.get("bbs")
+    rebar_review = build_reinforcement_review(inputs, rebar_bbs)
+    result["reinforcement_review"] = rebar_review
+    a1,a2,a3=st.columns(3)
+    a1.metric("PDF scheduled marks",len(rebar_review["schedule"]))
+    a2.metric("BBS-only variants",len(rebar_review["bbs_only_marks"]))
+    a3.metric("Review issues",len(rebar_review["issues"]))
+    drawing_names = ["Box reinforcement section", "Top and bottom slab plans",
+                     "Side wall elevations", "Bar mark and shape schedule", "Corner and lap reference details"]
+    drawing_view = st.selectbox("Select reinforcement view",drawing_names, key="stage8_view")
+    st.caption("Views update with geometry; the original workbook bar counts and cutting lengths "
+               "DO NOT update automatically when you edit geometry.")
+    drawing_functions = {
+        "Box reinforcement section": "draw_reinforcement_section",
+        "Top and bottom slab plans": "draw_reinforcement_plans",
+        "Side wall elevations": "draw_side_wall_elevation",
+        "Bar mark and shape schedule": "draw_bar_shape_schedule",
+        "Corner and lap reference details": "draw_corner_and_lap_details",
+    }
+    try:
+        import src.reinforcement_drawings as rd
+        figure = (rd.draw_bar_shape_schedule(rebar_bbs) if drawing_view=="Bar mark and shape schedule"
+                  else getattr(rd,drawing_functions[drawing_view])(inputs,rebar_bbs))
+        drawing_png = figure_png_bytes(figure)
+        plt.close(figure)
+        st.image(drawing_png, use_container_width=True,
+                 caption=f"{drawing_view}: schematic reference only, not to scale")
+        st.download_button("Download selected view (PNG)",data=drawing_png,
+                           file_name="reinforcement_"+drawing_view.lower().replace(" ","_")+".png",
+                           mime="image/png",key="stage8_selected_png")
+        pdf_data=make_review_pdf(inputs,rebar_bbs)
+        st.download_button("Download 5-sheet review drawing (PDF)",data=pdf_data,
+                           file_name="culvert_reinforcement_review_5_sheets.pdf",
+                           mime="application/pdf",key="stage8_review_pdf")
+        with tempfile.TemporaryDirectory() as tmp:
+            dxf_file=export_reinforcement_dxf(inputs,rebar_bbs,Path(tmp)/"culvert_reinforcement_review.dxf")
+            dxf_bytes=dxf_file.read_bytes()
+        st.download_button("Download reinforcement reference (DXF)",data=dxf_bytes,
+                           file_name="culvert_reinforcement_reference.dxf",
+                           mime="application/dxf",key="stage8_review_dxf")
+    except Exception as exc:
+        st.error(f"Could not generate reinforcement drawing: {exc}")
+    st.markdown("#### PDF bar schedule vs working BBS")
+    st.dataframe([{
+        "Bar mark":x["mark"],"Zone":x["zone"],"PDF dia (mm)":x["diameter_mm"],
+        "PDF spacing / note":x["spacing"],"Shape":x["shape"],
+        "BBS count":x["bbs_count"],"BBS cut (mm)":x["bbs_cut_mm"],"Check":x["status"]
+    } for x in rebar_review["schedule"]],hide_index=True,use_container_width=True,height=410)
+    with st.expander("Items to confirm with your sir",expanded=True):
+        for issue in rebar_review["issues"]:st.write("•",issue)
+    st.caption("PDF reference: reinforcement details drawing, sheet 3. The downloaded PDF "
+               "contains five Python-generated schematic pages, not the original certified drawing.")
+
 with tab_ref:
     st.subheader("Reference design note comparison — example case only")
     st.caption("The design note reports component dead loads in tonnes (t) using 2.50 t/m³ concrete density. These are reference quantities, not independently verified design results.")
@@ -1282,6 +1348,7 @@ with tab_notes:
     st.markdown("**Stage 5 ULS:** Reference checks now calculate flexure, "
                 "distribution reinforcement, nominal shear capacity and stirrup checks. "
                 "Demands are still cached reference values, not approved envelopes.")
+    st.markdown("**Stage 8 reinforcement drawings:** Box section, slab plans, bar-mark shapes, X/Y/Z and lap reference sketches; PDF/DXF/PNG review output. Missing bar diameters, h3 and construction details remain unverified.")
     st.markdown("**Stage 7 BBS/BOQ:** Editable BBS (2) reference bar masses and dynamic core concrete volumes; "
                 "general BOQ quantities are cached/manual, not a completed engineering takeoff.")
     st.markdown("**Stage 6 SLS:** Original design-sheet short-term rare stress and quasi-permanent crack-width checks; "
