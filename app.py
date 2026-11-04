@@ -17,6 +17,7 @@ import matplotlib.pyplot as plt
 import streamlit as st
 
 from src.inputs import CulvertInputs
+from src.general_arrangement import GADInputs, make_sheet1_pdf, sheet1_preview_png, export_sheet1_dxf
 from src.calculations import calculate_preview
 from src.drawings import (draw_culvert, draw_load_schematic, export_schematic_dxf,
                          draw_vehicle_loading, export_vehicle_reference_dxf)
@@ -378,8 +379,8 @@ tab_drawing, tab_calcs, tab_earth, tab_traffic, tab_vehicle, tab_combo, tab_solv
 with tab_drawing:
     st.subheader("Culvert drawings — geometry and load diagrams")
     st.caption("Two separate, automatically updated schematics. PNG downloads preserve all dimensions and labels.")
-    geom_tab, load_tab, axle_tab, fem_tab = st.tabs([
-        "📐 Geometry & dimensions", "🌍 Earth pressure & braking", "🚚 Vehicle axle reference", "🧱 Solved frame"
+    geom_tab, load_tab, axle_tab, fem_tab, gad_tab = st.tabs([
+        "📐 Geometry & dimensions", "🌍 Earth pressure & braking", "🚚 Vehicle axle reference", "🧱 Solved frame", "📄 GAD Sheet 1 (PDF-matched layout)"
     ])
     with geom_tab:
         st.markdown("**Dimensioned cross-section**")
@@ -437,6 +438,66 @@ with tab_drawing:
             st.info("Enable Run in-app FEM structural model in the sidebar.")
         st.warning("Orange displacement is exaggerated. Force bars are local member-END actions, "
                    "not a moment/shear design envelope. Solver assumptions require engineer review.")
+
+    with gad_tab:
+        st.subheader("General Arrangement Drawing — Sheet 1")
+        st.caption("Rebuilt from the layout of your original Sheet 1: Section A-A, plan, key plan, notes, design data and A2 title block. "
+                   "The box geometry is dynamic; wing walls, site levels, aprons and other site geometry remain reference values unless edited.")
+        st.warning("REFERENCE RECONSTRUCTION ONLY. This is NOT a pixel-identical replacement for the original CAD, "
+                   "and the site/wing-wall geometry has not been independently designed or verified.")
+        ca,cb,cc=st.columns([1,1,1])
+        chain=ca.text_input("Drawing chainage",value="36+925",key="gad_chainage")
+        apron_l=cb.number_input("D/S apron length (m)",value=6.0,min_value=0.1,step=0.5,key="gad_apron_left")
+        apron_r=cc.number_input("U/S apron length (m)",value=3.0,min_value=0.1,step=0.5,key="gad_apron_right")
+        with st.expander("Site reference dimensions and levels — confirm with your sir before changing"):
+            a1,a2,a3,a4=st.columns(4)
+            wing_l=a1.number_input("Wing-wall I length (m)",value=4.924,min_value=.1,step=.1,key="gad_wing1")
+            wing_r=a2.number_input("Wing-wall II length (m)",value=4.900,min_value=.1,step=.1,key="gad_wing2")
+            frl1=a3.number_input("FRL1 (m)",value=32.214,step=.01,key="gad_frl1")
+            frl2=a4.number_input("FRL2 (m)",value=32.351,step=.01,key="gad_frl2")
+            b1,b2,b3,b4=st.columns(4)
+            frl3=b1.number_input("FRL3 (m)",value=32.214,step=.01,key="gad_frl3")
+            gl=b2.number_input("Ground level (m)",value=29.219,step=.01,key="gad_gl")
+            il1=b3.number_input("IL1 (m)",value=28.790,step=.01,key="gad_il1")
+            il2=b4.number_input("IL2 (m)",value=28.802,step=.01,key="gad_il2")
+        try:
+            gad_inputs = GADInputs(chainage=chain, left_apron_m=apron_l,
+                                   right_apron_m=apron_r,
+                                   wingwall_left_length_m=wing_l,
+                                   wingwall_right_length_m=wing_r,
+                                   frl1_m=frl1,frl2_m=frl2,frl3_m=frl3,
+                                   ground_level_m=gl,
+                                   invert_level_left_m=il1,
+                                   invert_level_right_m=il2)
+            gad_pdf=make_sheet1_pdf(inputs,gad_inputs)
+            gad_png=sheet1_preview_png(inputs,gad_inputs,dpi=115)
+            gad_dxf=export_sheet1_dxf(inputs,gad_inputs)
+            compare=st.checkbox("Compare with original PDF Sheet 1",value=True,key="gad_compare")
+            reference_image=Path(__file__).resolve().parent/"data"/"original_gad_sheet1_reference.png"
+            if compare and reference_image.exists():
+                col_left,col_right=st.columns(2)
+                with col_left:
+                    st.markdown("**Original Sheet 1 — supplied PDF**")
+                    st.image(str(reference_image),use_container_width=True)
+                with col_right:
+                    st.markdown("**Python-generated Sheet 1 — editable**")
+                    st.image(gad_png,use_container_width=True)
+            else:
+                st.image(gad_png,use_container_width=True,caption="Reconstructed A2 landscape General Arrangement Drawing")
+            d1,d2,d3=st.columns(3)
+            with d1:
+                st.download_button("Download Sheet 1 PDF",gad_pdf,file_name="GAD_Sheet1_Review.pdf",
+                                   mime="application/pdf",key="gad_sheet1_pdf")
+            with d2:
+                st.download_button("Download Sheet 1 PNG",gad_png,file_name="GAD_Sheet1_Review.png",
+                                   mime="image/png",key="gad_sheet1_png")
+            with d3:
+                st.download_button("Download Sheet 1 DXF (paper layout)",gad_dxf,
+                                   file_name="GAD_Sheet1_Review.dxf",mime="application/dxf",key="gad_sheet1_dxf")
+            st.info("DXF is an editable A2 paper-layout drawing in millimetres, NOT 1:1 site CAD geometry. "
+                    "Wing walls, embankment, curtain walls, levels, title-block details and dimensions still need a drawing-by-drawing check.")
+        except Exception as error:
+            st.error(f"GAD Sheet 1 generation failed: {error}")
 
 with tab_calcs:
     st.subheader("Geometry and quantity calculations")
