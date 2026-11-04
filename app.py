@@ -18,6 +18,7 @@ import streamlit as st
 
 from src.inputs import CulvertInputs
 from src.general_arrangement import GADInputs, make_sheet1_pdf, sheet1_preview_png, export_sheet1_dxf
+from src.detailed_sections import Sheet2Inputs, make_sheet2_pdf, sheet2_preview_png, export_sheet2_dxf
 from src.calculations import calculate_preview
 from src.drawings import (draw_culvert, draw_load_schematic, export_schematic_dxf,
                          draw_vehicle_loading, export_vehicle_reference_dxf)
@@ -379,8 +380,8 @@ tab_drawing, tab_calcs, tab_earth, tab_traffic, tab_vehicle, tab_combo, tab_solv
 with tab_drawing:
     st.subheader("Culvert drawings — geometry and load diagrams")
     st.caption("Two separate, automatically updated schematics. PNG downloads preserve all dimensions and labels.")
-    geom_tab, load_tab, axle_tab, fem_tab, gad_tab = st.tabs([
-        "📐 Geometry & dimensions", "🌍 Earth pressure & braking", "🚚 Vehicle axle reference", "🧱 Solved frame", "📄 GAD Sheet 1 (PDF-matched layout)"
+    geom_tab, load_tab, axle_tab, fem_tab, gad_tab, details_tab = st.tabs([
+        "📐 Geometry & dimensions", "🌍 Earth pressure & braking", "🚚 Vehicle axle reference", "🧱 Solved frame", "📄 GAD Sheet 1", "📄 Detailed Sections Sheet 2"
     ])
     with geom_tab:
         st.markdown("**Dimensioned cross-section**")
@@ -498,6 +499,66 @@ with tab_drawing:
                     "Wing walls, embankment, curtain walls, levels, title-block details and dimensions still need a drawing-by-drawing check.")
         except Exception as error:
             st.error(f"GAD Sheet 1 generation failed: {error}")
+
+
+    with details_tab:
+        st.subheader("General Arrangement - Sheet 2: Detailed Sections")
+        st.caption("Reconstructed from the second page of the original General Arrangement Drawing: "
+                   "Section B-B, Section C-C, Curtain Walls Type I/II, Shear Key X, and the U-type wing wall reference.")
+        st.warning("ENGINEERING REVIEW OUTPUT ONLY. Dynamic box geometry is linked to your inputs; "
+                   "the curtain-wall profiles, embankment references and wing-wall sketch are not independently designed. "
+                   "The DXF uses A2 paper coordinates, NOT real-world 1:1 model coordinates.")
+        ds1,ds2,ds3=st.columns(3)
+        sheet2_chain=ds1.text_input("Sheet 2 chainage",value="36+925",key="sheet2_chainage")
+        sheet2_pcc=ds2.number_input("PCC bedding thickness (mm)",min_value=25,max_value=200,
+                                   value=75,step=5,key="sheet2_pcc")
+        sheet2_slope=ds3.number_input("Reference embankment slope (H:1V)",min_value=1.0,
+                                     max_value=4.0,value=2.0,step=.25,key="sheet2_slope")
+        with st.expander("Other reference details (verify against approved drawing)"):
+            d1,d2,d3=st.columns(3)
+            geo_gsm=d1.number_input("Non-woven geotextile (GSM)",value=150,min_value=50,max_value=500,
+                                    step=25,key="sheet2_geotextile")
+            key_gap=d2.number_input("Shear-key interface gap (mm)",min_value=5,max_value=80,value=20,
+                                     step=5,key="sheet2_gap")
+            key_toe=d3.number_input("Shear-key toe width (mm)",min_value=100,max_value=800,value=300,
+                                     step=25,key="sheet2_toe")
+        try:
+            detailed=Sheet2Inputs(chainage=sheet2_chain, pcc_bedding_mm=int(sheet2_pcc),
+                                  earth_fill_slope_h_to_v=float(sheet2_slope),
+                                  geo_textile_gsm=int(geo_gsm), shear_key_gap_mm=int(key_gap),
+                                  shear_key_toe_mm=int(key_toe))
+            d2_pdf=make_sheet2_pdf(inputs,detailed)
+            d2_png=sheet2_preview_png(inputs,detailed,dpi=115)
+            d2_dxf=export_sheet2_dxf(inputs,detailed)
+            ref_sheet2=Path(__file__).resolve().parent/"data"/"original_gad_sheet2_reference.png"
+            compare_d2=st.checkbox("Compare generated Sheet 2 with original PDF",value=True,
+                                   key="sheet2_compare")
+            if compare_d2 and ref_sheet2.exists():
+                orig_col,draw_col=st.columns(2)
+                with orig_col:
+                    st.markdown("**Original Sheet 2 - supplied PDF**")
+                    st.image(str(ref_sheet2),use_container_width=True)
+                with draw_col:
+                    st.markdown("**Generated Sheet 2 - Python**")
+                    st.image(d2_png,use_container_width=True)
+            else:
+                st.image(d2_png,use_container_width=True)
+            f1,f2,f3=st.columns(3)
+            with f1:
+                st.download_button("Download Sheet 2 PDF",d2_pdf,"GAD_Sheet2_Review.pdf",
+                                   "application/pdf",key="sheet2_pdf")
+            with f2:
+                st.download_button("Download Sheet 2 PNG",d2_png,"GAD_Sheet2_Review.png",
+                                   "image/png",key="sheet2_png")
+            with f3:
+                st.download_button("Download Sheet 2 DXF (paper layout)",d2_dxf,"GAD_Sheet2_Review.dxf",
+                                   "application/dxf",key="sheet2_dxf")
+            st.info("Section B-B/C-C dimensions and haunches follow the main culvert inputs. "
+                    "Original drawing notes for PCC, geotextile, curtain-wall types and shear key "
+                    "are shown as reference details. Wing-wall dimensions and shear-key depth "
+                    "require the original separate designs or engineer confirmation.")
+        except Exception as error:
+            st.error(f"Detailed Section Sheet 2 generation failed: {error}")
 
 with tab_calcs:
     st.subheader("Geometry and quantity calculations")
