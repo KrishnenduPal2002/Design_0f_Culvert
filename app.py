@@ -35,8 +35,13 @@ from src.uls_design import calculate_uls_design, reference_table
 from src.uls_inputs import uls_demands_csv_template, parse_uls_demands_csv
 from src.drawings import draw_uls_reference_comparison
 from src.sls_design import calculate_sls_design, sls_demands_csv_template, parse_sls_demands_csv, steel_details_from_uls
+from src.bbs import calculate_bbs, reference_bars
+from src.boq import calculate_boq, reference_boq_items
+from src.quantity_exports import (bbs_template_csv, boq_template_csv, bbs_result_csv,
+                                  boq_result_csv, parse_bbs_csv, parse_boq_csv)
+from src.quantity_charts import bbs_weight_chart, boq_concrete_chart
 
-st.set_page_config(page_title="RCC Box Culvert | ULS & SLS Checks", page_icon="🏗️", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="RCC Box Culvert | ULS, SLS, BBS & BOQ", page_icon="🏗️", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
 <style>
@@ -46,7 +51,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🏗️ RCC Box Culvert — Loads, Frame Analysis, ULS & SLS")
+st.title("🏗️ RCC Box Culvert — Loads, ULS, SLS, BBS & BOQ")
 st.caption("Single-cell box culvert · editable geometry · four optional triangular internal haunches")
 st.warning(
     "**Unverified engineering prototype — NOT for construction.** Stage 4B includes an "
@@ -359,10 +364,10 @@ m2.metric("External height", f"{g['external_height_m']:.3f} m")
 m3.metric("Concrete volume", f"{g['concrete_volume_m3']:.3f} m³")
 m4.metric("Self-weight (unfactored)", f"{loads['concrete_self_weight_kn']:,.2f} kN")
 
-tab_drawing, tab_calcs, tab_earth, tab_traffic, tab_vehicle, tab_combo, tab_solver, tab_analysis, tab_uls, tab_sls, tab_ref, tab_export, tab_notes = st.tabs([
+tab_drawing, tab_calcs, tab_earth, tab_traffic, tab_vehicle, tab_combo, tab_solver, tab_analysis, tab_uls, tab_sls, tab_bbs, tab_boq, tab_ref, tab_export, tab_notes = st.tabs([
     "📐 Drawing", "🧮 Calculations", "🌍 Earth pressure", "🚛 Braking forces",
     "🚚 Vehicle axles & dispersion", "🧾 Factor sets", "🧱 In-app frame solver", "🏗️ STAAD result comparison",
-    "🛡️ ULS design checks", "🔎 SLS checks", "📋 Reference comparison", "📥 Downloads", "ℹ️ Roadmap"
+    "🛡️ ULS design checks", "🔎 SLS checks", "🪛 BBS steel schedule", "📦 BOQ quantities", "📋 Reference comparison", "📥 Downloads", "ℹ️ Roadmap"
 ])
 
 with tab_drawing:
@@ -1089,6 +1094,124 @@ with tab_sls:
     st.caption("Stress PASS means only that the translated reference equations are below their reported limits. "
                "It does not approve the design, section properties, vehicle loads or analysis model.")
 
+# Stage 7: quantity worksheets are not structural design checks. They use
+# reference cut lengths/counts and general BOQ quantities unless edited by sir.
+with tab_bbs:
+    st.subheader("Stage 7 — Bar Bending Schedule (BBS)")
+    st.warning("**Engineer review required.** This schedule uses cached entries in the matching "
+               "`BBS (2)` worksheet. Cutting lengths, bar counts, bends, laps and actual "
+               "bar shapes are NOT generated from ULS/SLS or from geometry changes. "
+               "Three reference bar marks have missing diameters; no replacement values are invented.")
+    st.caption("Change bar diameter, cutting length or count to calculate a trial steel quantity. "
+               "Only an approved reinforcement drawing and engineer-reviewed schedule can authorize fabrication.")
+    bbs_col1,bbs_col2=st.columns(2)
+    with bbs_col1:
+        allowance=st.number_input("Additional lap/bend allowance (%) — reference 5%", min_value=0.0,
+                                  max_value=100.0, value=5.0, step=0.5, key="bbs_allowance_pct")
+    with bbs_col2:
+        st.download_button("Download editable BBS template (CSV)", bbs_template_csv(),
+                           file_name="bbs_input_template.csv",mime="text/csv",key="bbs_template")
+    bbs_upload=st.file_uploader("Optional: import saved BBS template",type=["csv"],key="bbs_upload")
+    bbs_base=reference_bars()
+    if bbs_upload is not None:
+        try:
+            bbs_base=parse_bbs_csv(bbs_upload.getvalue())
+            st.info("Imported BBS trial inputs. Original reference values are still available in the workbook.")
+        except (ValueError,TypeError) as exc:
+            st.error(f"BBS CSV rejected: {exc}")
+            st.stop()
+    edit_bbs=[{'id':r['id'],'Bar mark':r['mark'],'Member':r['member'],
+               'Dia (mm)':float(r['diameter_mm']),
+               'Spacing (mm)':float(r['spacing_mm']) if r['spacing_mm'] is not None else 0.0,
+               'Cut length (mm)':float(r['cut_length_mm']), 'Bar count':int(r['bar_count'])}
+              for r in bbs_base]
+    edited_bbs=st.data_editor(edit_bbs,disabled=['id','Bar mark','Member'],
+                              use_container_width=True,hide_index=True,num_rows='fixed',
+                              key='stage7_bbs_editor',height=425)
+    if hasattr(edited_bbs,'to_dict'):
+        edited_bbs=edited_bbs.to_dict('records')
+    index_bbs={r['id']:dict(r) for r in bbs_base}
+    for r in edited_bbs:
+        entry=index_bbs[r['id']]
+        entry['diameter_mm']=float(r['Dia (mm)'])
+        entry['cut_length_mm']=float(r['Cut length (mm)'])
+        entry['bar_count']=float(r['Bar count'])
+        entry['spacing_mm']=float(r['Spacing (mm)'])
+    try:
+        bbs_result=calculate_bbs(list(index_bbs.values()),allowance)
+        result['bbs']=bbs_result
+        result['boq']=calculate_boq(inputs,bbs_result)
+        bm1,bm2,bm3=st.columns(3)
+        bm1.metric('Scheduled steel (before allowance)',f"{bbs_result['net_steel_kg']:,.2f} kg")
+        bm2.metric('Allowance',f"{bbs_result['allowance_kg']:,.2f} kg")
+        bm3.metric('Scheduled steel (total)',f"{bbs_result['total_steel_t']:.3f} t")
+        st.dataframe([{'Bar mark':x['mark'],'Member':x['member'],'Weight (kg)':round(x['weight_kg'],3),
+                       'Status':x['status']} for x in bbs_result['lines']],use_container_width=True,
+                     hide_index=True,height=380)
+        plot=bbs_weight_chart(bbs_result)
+        st.pyplot(plot)
+        plt.close(plot)
+        st.download_button('Download calculated BBS (CSV)',bbs_result_csv(bbs_result),
+                           file_name='bbs_calculated_trial.csv',mime='text/csv',key='bbs_result')
+        for msg in bbs_result['warnings']:
+            st.warning(msg)
+    except (ValueError,TypeError) as exc:
+        st.error(f"Cannot calculate BBS: {exc}")
+
+with tab_boq:
+    st.subheader("Stage 7 — Bill of Quantities (BOQ)")
+    st.info("**Two different sources:** Basic culvert concrete volumes update from the current geometry. "
+            "The other BOQ lines come from the original workbook and do NOT automatically "
+            "change with your input dimensions. Their values can be manually reviewed/edited.")
+    st.caption("SLS drawings are not required for this tab. The charts here are quantity summaries, "
+               "not construction drawings or reinforcement detailing.")
+    st.download_button('Download editable BOQ template (CSV)',boq_template_csv(),
+                       file_name='boq_input_template.csv',mime='text/csv',key='boq_template')
+    boq_upload=st.file_uploader('Optional: import saved BOQ template',type=['csv'],key='boq_upload')
+    from_csv_overrides={}
+    if boq_upload is not None:
+        try:
+            from_csv_overrides=parse_boq_csv(boq_upload.getvalue())
+        except (ValueError,TypeError) as exc:
+            st.error(f"BOQ CSV rejected: {exc}")
+            st.stop()
+    source_boq=reference_boq_items()
+    boq_edit_rows=[{'id':x['id'], 'Item':x['description'], 'Unit':x['unit'],
+                    'Excel reference':float(x['reference_quantity']),
+                    'Working quantity':float(from_csv_overrides.get(x['id'],x['reference_quantity']))}
+                   for x in source_boq]
+    edited_boq=st.data_editor(boq_edit_rows,disabled=['id','Item','Unit','Excel reference'],
+                              use_container_width=True,hide_index=True,num_rows='fixed',
+                              key='stage7_boq_editor',height=440)
+    if hasattr(edited_boq,'to_dict'):
+        edited_boq=edited_boq.to_dict('records')
+    overrides={}
+    for row in edited_boq:
+        original=next(x['reference_quantity'] for x in source_boq if x['id']==row['id'])
+        newval=float(row['Working quantity'])
+        if not math.isclose(newval,original,rel_tol=0,abs_tol=1e-9):
+            overrides[row['id']]=newval
+    try:
+        boq_result=calculate_boq(inputs,result.get('bbs'),overrides)
+        result['boq']=boq_result
+        core=boq_result['core_quantities']
+        st.markdown('#### Geometry-linked culvert quantities')
+        st.dataframe(core,hide_index=True,use_container_width=True)
+        vol=next(x['quantity'] for x in core if x['description'].startswith('TOTAL'))
+        metric1,metric2,metric3=st.columns(3)
+        metric1.metric('Current culvert concrete',f'{vol:,.3f} m³')
+        metric2.metric('Original BOQ culvert concrete',f"{boq_result['reference_box_concrete_m3']:,.3f} m³")
+        metric3.metric('BOQ steel estimator vs BBS',f"{boq_result['boq_vs_bbs_rebar_difference_t']:+,.3f} t")
+        plot=boq_concrete_chart(boq_result)
+        st.pyplot(plot)
+        plt.close(plot)
+        st.download_button('Download reviewed BOQ quantities (CSV)',boq_result_csv(boq_result),
+                           file_name='boq_calculated_trial.csv',mime='text/csv',key='boq_result')
+        for message in boq_result['warnings']:
+            st.warning(message)
+    except (ValueError,TypeError) as exc:
+        st.error(f"Cannot calculate BOQ: {exc}")
+
 with tab_ref:
     st.subheader("Reference design note comparison — example case only")
     st.caption("The design note reports component dead loads in tonnes (t) using 2.50 t/m³ concrete density. These are reference quantities, not independently verified design results.")
@@ -1159,12 +1282,14 @@ with tab_notes:
     st.markdown("**Stage 5 ULS:** Reference checks now calculate flexure, "
                 "distribution reinforcement, nominal shear capacity and stirrup checks. "
                 "Demands are still cached reference values, not approved envelopes.")
+    st.markdown("**Stage 7 BBS/BOQ:** Editable BBS (2) reference bar masses and dynamic core concrete volumes; "
+                "general BOQ quantities are cached/manual, not a completed engineering takeoff.")
     st.markdown("**Stage 6 SLS:** Original design-sheet short-term rare stress and quasi-permanent crack-width checks; "
                 "editable trial inputs and complete engineer-mapped SLS demands. Long-term and deflection remain pending.")
     st.markdown("**Pending:** Verify frame geometry, loading datum, soil interaction, support arrangement, "
                 "wheel distribution and sign conventions against an actual STAAD model; "
                 "independently benchmark/mesh-refine the solver; IRC ULS/SLS combinations and "
-                "structural design capacity, long-term SLS, deflection, BBS and BOQ.")
+                "structural design capacity, long-term SLS, deflection, and verified bar/detail quantities.")
     st.subheader("Engineering work still required")
     for limitation in result["limitations"]:
         st.write("•", limitation)

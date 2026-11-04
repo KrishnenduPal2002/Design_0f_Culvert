@@ -138,6 +138,26 @@ def to_csv_bytes(result: dict) -> bytes:
                 writer.writerow(["sls_section", f"{label} / {k}", r[k], "reference serviceability check"])
         for note in sls["limitations"]:
             writer.writerow(["sls_limitations", "condition", note, ""])
+    if "bbs" in result:
+        b = result["bbs"]
+        writer.writerow(["bbs", "source", b["source"], ""])
+        for key,unit in (("net_steel_kg","kg"),("allowance_percent","%"),
+                         ("total_steel_kg","kg"),("total_steel_t","t")):
+            writer.writerow(["bbs_summary",key,b[key],unit])
+        for line in b["lines"]:
+            writer.writerow(["bbs_mark",line["mark"],line["weight_kg"],
+                             f"kg; qty={line['bar_count']}; dia={line['diameter_mm']} mm; status={line['status']}"])
+        for warning in b["warnings"]:
+            writer.writerow(["bbs_review","warning",warning,""])
+    if "boq" in result:
+        q=result["boq"]
+        for row in q["core_quantities"]:
+            writer.writerow(["boq_core",row["description"],row["quantity"],row["unit"]])
+        for row in q["reference_items"]:
+            writer.writerow(["boq_reference",row["description"],row["quantity"],
+                             row["unit"]+"; "+row["quantity_source"]])
+        for warning in q["warnings"]:
+            writer.writerow(["boq_review","warning",warning,""])
     writer.writerow(["status", "structural_design_status", result["structural_design_status"], ""])
     for i, limitation in enumerate(result.get("limitations", []), 1):
         writer.writerow(["limitations", i, limitation, ""])

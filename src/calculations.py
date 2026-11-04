@@ -28,6 +28,8 @@ from .structural_analysis import is_original_geometry, build_structural_analysis
 from .frame_solver import FrameOptions, run_frame_analysis
 from .uls_design import calculate_uls_design
 from .sls_design import calculate_sls_design
+from .bbs import calculate_bbs
+from .boq import calculate_boq
 
 
 def calculate_preview(
@@ -44,6 +46,9 @@ def calculate_preview(
     sls_design_overrides: dict[str, dict] | None = None,
     sls_demand_source: str = "Original Excel SLS reference (not verified against active loads)",
     sls_design_options: dict | None = None,
+    bbs_bar_rows: list[dict] | None = None,
+    bbs_allowance_pct: float = 5.0,
+    boq_quantity_overrides: dict[str, float] | None = None,
 ) -> dict:
     """Return one consistent snapshot of the available analysis stages.
 
@@ -111,7 +116,7 @@ def calculate_preview(
             "Factors are user-supplied component multipliers, NOT approved IRC ULS/SLS load combinations",
             "No member forces, reactions, bending moments, or shears are computed from vehicle loads",
             "ULS reference checks and SLS rare/quasi reference checks are implemented; no validated design load envelopes or detailing checks",
-            "No BBS, BOQ or construction-ready reinforcement details",
+            "BBS/BOQ trial quantities available; construction-ready reinforcement details remain pending",
             "No approval or certification of structural safety",
             "Volumes include four simplified triangular haunches but omit barriers and other special geometry; haunch area differs from the design note",
         ],
@@ -150,7 +155,7 @@ def calculate_preview(
             "Applied factor sets yield combined frame actions, but are USER CONFIGURED, not code-approved ULS/SLS combinations",
             "Frame member-end forces, moments and support reactions are calculated for this simplified model; no verified force envelopes",
             "Excel-reference ULS and SLS checks available, but not validated against active solver loads; no certified reinforcement design",
-            "No BBS, BOQ or construction-ready reinforcement details",
+            "BBS/BOQ trial quantities available; construction-ready reinforcement details remain pending",
             "No approval or certification of structural safety",
             "Haunch mass is approximated at frame corners; haunch stiffness and barriers are omitted; design-note area discrepancy unresolved",
         ]
@@ -172,6 +177,18 @@ def calculate_preview(
     result["limitations"].append(
         "Stage 6 SLS uses selected rare/quasi service moments and original section properties; "
         "not a validated design envelope. Crack-width acceptance needs an engineer-approved limit."
+    )
+    # Stage 7 BBS is editable bar-schedule arithmetic; BOQ only recalculates the
+    # basic culvert concrete quantities. Other BOQ rows stay reference/manual.
+    result["bbs"] = calculate_bbs(bbs_bar_rows, bbs_allowance_pct)
+    result["boq"] = calculate_boq(inputs, result["bbs"], boq_quantity_overrides)
+    result["limitations"].append(
+        "Stage 7 BBS uses editable cached BBS (2) mark lengths/counts/diameters; "
+        "bar shapes, cut lengths, bends, laps and revised geometry require engineer approval."
+    )
+    result["limitations"].append(
+        "Stage 7 BOQ dynamically updates core culvert concrete only; other line quantities "
+        "are original Excel values or manually entered, not re-estimated from dimensions."
     )
     if structural_records:
         result["limitations"].append(
