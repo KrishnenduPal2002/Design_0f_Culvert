@@ -8,7 +8,6 @@ from __future__ import annotations
 import io
 import math
 import hashlib
-import tempfile
 from pathlib import Path
 
 import matplotlib
@@ -17,11 +16,10 @@ import matplotlib.pyplot as plt
 import streamlit as st
 
 from src.inputs import CulvertInputs
-from src.general_arrangement import GADInputs, make_sheet1_pdf, sheet1_preview_png, export_sheet1_dxf
-from src.detailed_sections import Sheet2Inputs, make_sheet2_pdf, sheet2_preview_png, export_sheet2_dxf
+from src.general_arrangement import GADInputs, make_sheet1_pdf, sheet1_preview_png
+from src.detailed_sections import Sheet2Inputs, make_sheet2_pdf, sheet2_preview_png
 from src.calculations import calculate_preview
-from src.drawings import (draw_culvert, draw_load_schematic, export_schematic_dxf,
-                         draw_vehicle_loading, export_vehicle_reference_dxf)
+from src.drawings import draw_culvert, draw_load_schematic, draw_vehicle_loading
 from src.reports import to_csv_bytes, to_json_bytes
 from src.earth_pressure import EarthPressureInputs
 from src.traffic_loads import BrakingInputs
@@ -44,7 +42,7 @@ from src.quantity_exports import (bbs_template_csv, boq_template_csv, bbs_result
 from src.quantity_charts import bbs_weight_chart, boq_concrete_chart
 from src.reinforcement_drawings import (
     build_reinforcement_review, figures_for_review, figure_png_bytes,
-    make_review_pdf, export_reinforcement_dxf,
+    make_review_pdf,
 )
 
 
@@ -405,7 +403,7 @@ with tab_drawing:
     st.subheader("Culvert drawings — geometry and load diagrams")
     st.caption("Two separate, automatically updated schematics. PNG downloads preserve all dimensions and labels.")
     geom_tab, load_tab, axle_tab, fem_tab, gad_tab, details_tab = st.tabs([
-        "📐 Geometry & dimensions", "🌍 Earth pressure & braking", "🚚 Vehicle axle reference", "🧱 Solved frame", "📄 GAD Sheet 1", "📄 Detailed Sections Sheet 2"
+        "📐 Geometry & dimensions", "🌍 Earth pressure & braking", "🚚 Vehicle axle reference", "🧱 Solved frame", "📄 Sheet 1", "📄 Sheet 2"
     ])
     with geom_tab:
         st.markdown("**Dimensioned cross-section**")
@@ -449,7 +447,7 @@ with tab_drawing:
             pass
 
     with gad_tab:
-        st.subheader("General Arrangement Drawing — Sheet 1")
+        st.subheader("Sheet 1")
         st.caption("Rebuilt from the layout of your original Sheet 1: Section A-A, plan, key plan, notes, design data and A2 title block. "
                    "The box geometry is dynamic; wing walls, site levels, aprons and other site geometry remain reference values unless edited.")
         ca,cb,cc=st.columns([1,1,1])
@@ -478,8 +476,7 @@ with tab_drawing:
                                    invert_level_right_m=il2)
             gad_pdf=make_sheet1_pdf(inputs,gad_inputs)
             gad_png=sheet1_preview_png(inputs,gad_inputs,dpi=115)
-            gad_dxf=export_sheet1_dxf(inputs,gad_inputs)
-            compare=st.checkbox("Compare with original PDF Sheet 1",value=True,key="gad_compare")
+            compare=st.checkbox("Compare with original Sheet 1",value=True,key="gad_compare")
             reference_image=Path(__file__).resolve().parent/"data"/"original_gad_sheet1_reference.png"
             if compare and reference_image.exists():
                 col_left,col_right=st.columns(2)
@@ -491,23 +488,20 @@ with tab_drawing:
                     st.image(gad_png,use_container_width=True)
             else:
                 st.image(gad_png,use_container_width=True,caption="Reconstructed A2 landscape General Arrangement Drawing")
-            d1,d2,d3=st.columns(3)
+            d1,d2=st.columns(2)
             with d1:
                 st.download_button("Download Sheet 1 PDF",gad_pdf,file_name="GAD_Sheet1_Review.pdf",
                                    mime="application/pdf",key="gad_sheet1_pdf")
             with d2:
                 st.download_button("Download Sheet 1 PNG",gad_png,file_name="GAD_Sheet1_Review.png",
                                    mime="image/png",key="gad_sheet1_png")
-            with d3:
-                st.download_button("Download Sheet 1 DXF (paper layout)",gad_dxf,
-                                   file_name="GAD_Sheet1_Review.dxf",mime="application/dxf",key="gad_sheet1_dxf")
             pass
         except Exception as error:
             st.error(f"GAD Sheet 1 generation failed: {error}")
 
 
     with details_tab:
-        st.subheader("General Arrangement - Sheet 2: Detailed Sections")
+        st.subheader("Sheet 2")
         st.caption("Reconstructed from the second page of the original General Arrangement Drawing: "
                    "Section B-B, Section C-C, Curtain Walls Type I/II, Shear Key X, and the U-type wing wall reference.")
         ds1,ds2,ds3=st.columns(3)
@@ -531,9 +525,8 @@ with tab_drawing:
                                   shear_key_toe_mm=int(key_toe))
             d2_pdf=make_sheet2_pdf(inputs,detailed)
             d2_png=sheet2_preview_png(inputs,detailed,dpi=115)
-            d2_dxf=export_sheet2_dxf(inputs,detailed)
             ref_sheet2=Path(__file__).resolve().parent/"data"/"original_gad_sheet2_reference.png"
-            compare_d2=st.checkbox("Compare generated Sheet 2 with original PDF",value=True,
+            compare_d2=st.checkbox("Compare Generated sheet 2",value=True,
                                    key="sheet2_compare")
             if compare_d2 and ref_sheet2.exists():
                 orig_col,draw_col=st.columns(2)
@@ -545,16 +538,13 @@ with tab_drawing:
                     st.image(d2_png,use_container_width=True)
             else:
                 st.image(d2_png,use_container_width=True)
-            f1,f2,f3=st.columns(3)
+            f1,f2=st.columns(2)
             with f1:
                 st.download_button("Download Sheet 2 PDF",d2_pdf,"GAD_Sheet2_Review.pdf",
                                    "application/pdf",key="sheet2_pdf")
             with f2:
                 st.download_button("Download Sheet 2 PNG",d2_png,"GAD_Sheet2_Review.png",
                                    "image/png",key="sheet2_png")
-            with f3:
-                st.download_button("Download Sheet 2 DXF (paper layout)",d2_dxf,"GAD_Sheet2_Review.dxf",
-                                   "application/dxf",key="sheet2_dxf")
             pass
         except Exception as error:
             st.error(f"Detailed Section Sheet 2 generation failed: {error}")
@@ -1076,8 +1066,6 @@ with tab_sls:
     )
     if share_with_uls:
         source_name += "; optionally copied current ULS section d/As (review required)"
-        st.warning("Only section depth-to-steel mapping is shared—not ULS bending moments or shears. "
-                   "Ask your sir to confirm the same reinforcement faces are applicable to SLS.")
         for sid, shared in steel_details_from_uls(result["uls_design"]).items():
             demand_overrides.setdefault(sid, {}).update(shared)
 
@@ -1152,7 +1140,7 @@ with tab_sls:
     met1.metric("Serviceability sections", len(sls["sections"]))
     met2.metric("Stress checks needing review", sls["rare_review_count"])
     met3.metric("Crack checks needing review", sls["crack_review_count"] if use_crack_limit else "Limit not set")
-    rare_view, crack_view, audit_view = st.tabs(["Rare-combination stresses", "Quasi-permanent crack widths", "Source and limitations"])
+    rare_view, crack_view = st.tabs(["Rare-combination stresses", "Quasi-permanent crack widths"])
     with rare_view:
         st.dataframe([{
             "Member": row["member"], "Location": row["location"],
@@ -1172,13 +1160,6 @@ with tab_sls:
             "Permissible width (mm)": row["permissible_crack_width_mm"],
             "Crack check": row["crack_status"],
         } for row in sls["sections"]], hide_index=True, use_container_width=True)
-    with audit_view:
-        st.write("Source:", sls["demand_source"])
-        st.write("Original reference geometry:", "Matches" if sls["reference_geometry_matches"] else "Differs")
-        for limitation in sls["limitations"]:
-            st.warning(limitation)
-    st.caption("Stress PASS means only that the translated reference equations are below their reported limits. "
-               "It does not approve the design, section properties, vehicle loads or analysis model.")
 
 # Stage 7: quantity worksheets are not structural design checks. They use
 # reference cut lengths/counts and general BOQ quantities unless edited by sir.
@@ -1372,11 +1353,5 @@ with tab_rebar:
         st.download_button("Download 5-sheet review drawing (PDF)",data=pdf_data,
                            file_name="culvert_reinforcement_review_5_sheets.pdf",
                            mime="application/pdf",key="stage8_review_pdf")
-        with tempfile.TemporaryDirectory() as tmp:
-            dxf_file=export_reinforcement_dxf(inputs,rebar_bbs,Path(tmp)/"culvert_reinforcement_review.dxf")
-            dxf_bytes=dxf_file.read_bytes()
-        st.download_button("Download reinforcement reference (DXF)",data=dxf_bytes,
-                           file_name="culvert_reinforcement_reference.dxf",
-                           mime="application/dxf",key="stage8_review_dxf")
     except Exception as exc:
         st.error(f"Could not generate reinforcement drawing: {exc}")

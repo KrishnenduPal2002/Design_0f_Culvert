@@ -286,6 +286,9 @@ def draw_vehicle_loading(inputs: CulvertInputs, axle_results: dict,
     chart=fig.add_subplot(grid[0,1])
     _section(sec,inputs)
     active=[r for r in axle_results['axles'] if r['on_span']]
+    kind = axle_results.get('loading_type', '70rw')
+    prefix = 'T' if kind == '70rt' else ('A' if kind == 'sv385' else 'W')
+    station_description = 'equivalent track station' if kind == '70rt' else 'axle' if kind == 'sv385' else 'wheel/load station'
     ymax=h+.3
     lift=min(.72,.20*h)
     # A local 3.25m effective-span axis is projected over the 3.50m transverse
@@ -296,7 +299,7 @@ def draw_vehicle_loading(inputs: CulvertInputs, axle_results: dict,
         x=left+row['distance_from_left_support_m']*(w/ span)
         sec.add_patch(FancyArrowPatch((x,h+.63),(x,h+.075), arrowstyle='-|>',
                         mutation_scale=18, lw=2, color='#b45309'))
-        sec.text(x, h+.74, f"W{row['wheel']}\n{row['wheel_load_tf']:.2f} tf",
+        sec.text(x, h+.74, f"{prefix}{row['wheel']}\n{row['wheel_load_tf']:.2f} tf",
                  ha='center', va='bottom',fontsize=9,color='#92400e',fontweight='bold')
     sec.set_xlim(-.28,w+.34)
     sec.set_ylim(-.28,h+1.35)
@@ -305,23 +308,23 @@ def draw_vehicle_loading(inputs: CulvertInputs, axle_results: dict,
     if active:
         positions=[r['distance_from_left_support_m'] for r in active]
         intensities=[r['load_per_unit_width_tf_m'] for r in active]
-        chart.bar([f"W{r['wheel']}" for r in active],intensities,color='#c98130')
+        chart.bar([f"{prefix}{r['wheel']}" for r in active],intensities,color='#c98130')
         for i,v in enumerate(intensities):
             chart.text(i,v+.08,f'{v:.2f}',ha='center',fontsize=9)
         chart.set_ylim(0,max(intensities)*1.22)
     else:
-        chart.text(.5,.5,'No axles on reference span',ha='center',va='center',
+        chart.text(.5,.5,'No reference load stations on span',ha='center',va='center',
                    transform=chart.transAxes,fontsize=13)
     chart.set_ylabel('Workbook strip-load intensity (tf/m)')
-    chart.set_title('Current active axles',fontsize=12,color=INK)
+    chart.set_title('Active reference stations',fontsize=12,color=INK)
     chart.grid(axis='y',alpha=.2)
-    fig.suptitle('STAGE 3  |  VEHICLE WHEEL / IMPACT / DISPERSION REFERENCE',
+    fig.suptitle('STAGE 3  |  VEHICLE LOAD / IMPACT / DISPERSION REFERENCE',
                  y=.965,fontsize=15,fontweight='bold',color=INK)
     fig.text(.5,.085,
-             f"Lead wheel x = {axle_results['parameters']['lead_axle_position_m']:.2f} m   ·   "
+             f"Lead station x = {axle_results['parameters']['lead_axle_position_m']:.2f} m   ·   "
              f"Impact = {axle_results['impact_factor']:.3f}   ·   "
              f"Alpha = {axle_results['alpha']:.3f}   ·   "
-             f"Active wheels = {axle_results['active_axle_count']}",
+             f"Active stations = {axle_results['active_axle_count']}   ·   {station_description}",
              ha='center',fontsize=10,color=INK)
     fig.text(.5,.045,
              'SCHEMATIC ONLY: projected axle axis is not the cross-section axis. '
@@ -342,11 +345,13 @@ def export_vehicle_reference_dxf(inputs: CulvertInputs, axle_results: dict,
     w,h=geom.external_width_m,geom.external_height_m
     msp.add_lwpolyline([(0,0),(w,0),(w,h),(0,h)],close=True,dxfattribs={'layer':'SCHEMATIC_SECTION'})
     span=axle_results['effective_span_m']
+    kind = axle_results.get('loading_type', '70rw')
+    prefix = 'T' if kind == '70rt' else ('A' if kind == 'sv385' else 'W')
     for row in axle_results['axles']:
         if not row['on_span']:continue
         x=inputs.wall_thickness_m/2 + row['distance_from_left_support_m']*w/span
         msp.add_line((x,h+.6),(x,h+.05),dxfattribs={'layer':'AXLE_REFERENCE'})
-        msp.add_text(f"W{row['wheel']} {row['wheel_load_tf']:.2f}tf (reference)",
+        msp.add_text(f"{prefix}{row['wheel']} {row['wheel_load_tf']:.2f}tf (reference)",
                      dxfattribs={'height':.09,'insert':(x,h+.67),'layer':'AXLE_REFERENCE'})
     msp.add_text('REFERENCE ONLY: AXLE POSITION PROJECTION; NOT AN ENGINEERING LOAD PLAN',
                  dxfattribs={'height':.10,'insert':(0,-.28),'layer':'AXLE_REFERENCE'})
@@ -464,4 +469,37 @@ def draw_frame_solver_results(inputs, frame: dict):
     fig.suptitle("STAGE 4B — EXPERIMENTAL IN-APP FRAME SOLVER · NOT APPROVED FOR CONSTRUCTION",
                  fontsize=12,weight="bold")
     fig.tight_layout(rect=(0,0,1,.95))
+    return fig
+
+
+def draw_uls_reference_comparison(uls_result: dict):
+    """Plot reference ULS flexural steel demand vs provided, and stirrup spacing.
+
+    This is a numeric check diagram, NOT an approved reinforcement drawing.
+    """
+    labels = [f"{r['member']}\n{r['location']}" for r in uls_result['flexure']]
+    required = [r['as_required_mm2_per_m'] or 0 for r in uls_result['flexure']]
+    provided = [r['provided_as_mm2_per_m'] for r in uls_result['flexure']]
+    ys = range(len(labels))
+    fig, (ax, ax2) = plt.subplots(1, 2, figsize=(15, 9), gridspec_kw={'width_ratios':[2.5, 1]})
+    ax.barh([i-0.17 for i in ys], required, height=.32, label='As required (Excel formula)')
+    ax.barh([i+0.17 for i in ys], provided, height=.32, label='As provided (reference)')
+    ax.set_yticks(list(ys), labels, fontsize=8)
+    ax.invert_yaxis()
+    ax.set_xlabel('Longitudinal steel area (mm²/m)')
+    ax.set_title('ULS flexure — original workbook demands')
+    ax.grid(axis='x', alpha=.2)
+    ax.legend(fontsize=8)
+    stirrups = uls_result['stirrups']
+    slabels = [f"Design row {r['row']}" for r in stirrups]
+    xs = list(range(len(stirrups)))
+    ax2.bar([i-.18 for i in xs], [r['spacing_mm'] for r in stirrups], width=.36, label='Provided spacing')
+    ax2.bar([i+.18 for i in xs], [r['max_spacing_mm'] for r in stirrups], width=.36, label='Excel s max')
+    ax2.set_xticks(xs, slabels, fontsize=9)
+    ax2.set_ylabel('Stirrup spacing (mm)')
+    ax2.set_title('Stirrup spacing audit')
+    ax2.grid(axis='y', alpha=.2)
+    ax2.legend(fontsize=8)
+    fig.suptitle('Stage 5 — ULS reference-check summary (NOT certified design)', fontsize=13)
+    fig.tight_layout()
     return fig

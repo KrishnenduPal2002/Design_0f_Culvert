@@ -26,6 +26,11 @@ from .vehicle_loading import VehicleLoadingInputs, calculate_axle_dispersion, sc
 from .load_combinations import CombinationInputs, calculate_component_factors
 from .structural_analysis import is_original_geometry, build_structural_analysis_snapshot
 from .frame_solver import FrameOptions, run_frame_analysis
+from .uls_design import calculate_uls_design
+from .sls_design import calculate_sls_design
+from .bbs import calculate_bbs
+from .boq import calculate_boq
+from .reinforcement_drawings import build_reinforcement_review
 
 
 def calculate_preview(
@@ -37,14 +42,22 @@ def calculate_preview(
     structural_records: list[dict] | None = None,
     frame_options: FrameOptions | None = None,
     run_frame: bool = False,
+    uls_design_overrides: dict[int, dict] | None = None,
+    uls_design_demand_source: str = "Original Excel ULS reference (not verified against active loads)",
+    sls_design_overrides: dict[str, dict] | None = None,
+    sls_demand_source: str = "Original Excel SLS reference (not verified against active loads)",
+    sls_design_options: dict | None = None,
+    bbs_bar_rows: list[dict] | None = None,
+    bbs_allowance_pct: float = 5.0,
+    boq_quantity_overrides: dict[str, float] | None = None,
 ) -> dict:
-    """Return one consistent snapshot of Stages 1–3 for the Streamlit app.
+    """Return one consistent snapshot of the available analysis stages.
 
     Optional Stage 2/3 parameters default to the original design-note values,
     but their cushion and length must always match the culvert geometry.
 
-    Only *pressure magnitudes* and *braking-force summaries* are calculated;
-    load patterns, resultant member actions, and design combinations are not.
+    Structural actions are returned only when experimental frame solve is enabled;
+    otherwise this contains preview loads, not design forces.
     """
     inputs.validate()
     earth = earth_pressure_inputs or EarthPressureInputs(earth_cushion_m=inputs.earth_cushion_m)
@@ -100,11 +113,11 @@ def calculate_preview(
         "limitations": [
             "No STAAD structural analysis or equivalent frame solver",
             "Stage 2 earth/surcharge/cushion pressures are preliminary magnitudes only; no member-force application or combined effects",
-            "Stage 3 contains workbook-reference 70R(W) wheel/impact/width calculations only; other vehicle arrangements require verified axle data",
+            "Stage 3 includes workbook-reference 70R(W), 40T Bogie, equivalent 70R tracked, 385T SV and Custom load stations; physical placements and code rules are not fully verified",
             "Factors are user-supplied component multipliers, NOT approved IRC ULS/SLS load combinations",
             "No member forces, reactions, bending moments, or shears are computed from vehicle loads",
-            "No ULS/SLS, crack width, shear or reinforcement design checks",
-            "No BBS, BOQ or construction-ready reinforcement details",
+            "ULS reference checks and SLS rare/quasi reference checks are implemented; no validated design load envelopes or detailing checks",
+            "BBS/BOQ trial quantities available; construction-ready reinforcement details remain pending",
             "No approval or certification of structural safety",
             "Volumes include four simplified triangular haunches but omit barriers and other special geometry; haunch area differs from the design note",
         ],
@@ -139,14 +152,51 @@ def calculate_preview(
         result["limitations"] = [
             "A real Python 2D frame solver is implemented but NOT STAAD; no direct STAAD connection or independent verification",
             "Stage 2 soil/surcharge/cushion loads are applied to model members using provisional location, datum and direction assumptions",
-            "Stage 3 axle strip loads and braking are applied to the model but vehicle patterns, lever arm and full loading rules are NOT validated",
+            "Stage 3 70R(W), 40T and custom wheel strip-loads can be applied to the prototype frame; 70R tracked and 385T require separate verified structural mapping and are not solved in the app",
             "Applied factor sets yield combined frame actions, but are USER CONFIGURED, not code-approved ULS/SLS combinations",
             "Frame member-end forces, moments and support reactions are calculated for this simplified model; no verified force envelopes",
-            "No certified ULS/SLS, crack width, shear or reinforcement capacity checks",
-            "No BBS, BOQ or construction-ready reinforcement details",
+            "Excel-reference ULS and SLS checks available, but not validated against active solver loads; no certified reinforcement design",
+            "BBS/BOQ trial quantities available; construction-ready reinforcement details remain pending",
             "No approval or certification of structural safety",
             "Haunch mass is approximated at frame corners; haunch stiffness and barriers are omitted; design-note area discrepancy unresolved",
         ]
+    # Stage 5 ULS is a traceable translation of Design!52:166 for the original
+    # case, not a capacity check against the experimental model's member forces.
+    result["uls_design"] = calculate_uls_design(
+        inputs, uls_design_overrides, demand_source=uls_design_demand_source
+    )
+    result["limitations"].append(
+        f"Stage 5 ULS demand source: {uls_design_demand_source}. Design forces, "
+        "section mappings and steel details require engineer review; unvalidated FEM is not approved input."
+    )
+    # Stage 6 SLS is an independent serviceability calculation. It shares the
+    # materials/section properties but never substitutes ULS factored actions.
+    result["sls_design"] = calculate_sls_design(
+        inputs, sls_design_overrides, demand_source=sls_demand_source,
+        **(sls_design_options or {}),
+    )
+    result["limitations"].append(
+        "Stage 6 SLS uses selected rare/quasi service moments and original section properties; "
+        "not a validated design envelope. Crack-width acceptance needs an engineer-approved limit."
+    )
+    # Stage 7 BBS is editable bar-schedule arithmetic; BOQ only recalculates the
+    # basic culvert concrete quantities. Other BOQ rows stay reference/manual.
+    result["bbs"] = calculate_bbs(bbs_bar_rows, bbs_allowance_pct)
+    result["boq"] = calculate_boq(inputs, result["bbs"], boq_quantity_overrides)
+    result["reinforcement_review"] = build_reinforcement_review(inputs, result["bbs"])
+    result["limitations"].append(
+        "Stage 7 BBS uses editable cached BBS (2) mark lengths/counts/diameters; "
+        "bar shapes, cut lengths, bends, laps and revised geometry require engineer approval."
+    )
+    result["limitations"].append(
+        "Stage 7 BOQ dynamically updates core culvert concrete only; other line quantities "
+        "are original Excel values or manually entered, not re-estimated from dimensions."
+    )
+    result["limitations"].append(
+        "Stage 8 drawing sheets reproduce selected bar schedules and typical layouts from the supplied "
+        "reinforcement PDF. Missing diameters, h3, bend/lap lengths, full placing geometry and "
+        "fabrication detailing require engineer checking. NOT for construction."
+    )
     if structural_records:
         result["limitations"].append(
             "Imported member forces have not been checked for STAAD model validity, "
