@@ -38,7 +38,7 @@ from src.uls_inputs import uls_demands_csv_template, parse_uls_demands_csv
 from src.drawings import draw_uls_reference_comparison
 from src.sls_design import calculate_sls_design, sls_demands_csv_template, parse_sls_demands_csv, steel_details_from_uls
 from src.bbs import calculate_bbs, reference_bars
-from src.boq import calculate_boq, reference_boq_items
+from src.boq import calculate_boq, editable_boq_template, calculate_editable_boq, BOQ_GROUPS, boq_sketch_parameters
 from src.quantity_exports import (bbs_template_csv, boq_template_csv, bbs_result_csv,
                                   boq_result_csv, parse_bbs_csv, parse_boq_csv)
 from src.quantity_charts import bbs_weight_chart, boq_concrete_chart
@@ -60,16 +60,43 @@ st.markdown("""
 
 st.title("🏗️ RCC Box Culvert — Loads, ULS, SLS, BBS & BOQ")
 st.caption("Single-cell box culvert · editable geometry · four optional triangular internal haunches")
-st.warning(
-    "**Unverified engineering prototype — NOT for construction.** Stage 4B includes an "
-    "experimental in-app 2D frame FEM solver with applied earth, surcharge, fill, "
-    "concrete-weight, axle strip-load and braking loads. It calculates member-end "
-    "forces and combined effects, but **is not STAAD**, does not establish approved "
-    "IRC load factors, and is **not validated for structural design**. The original "
-    "haunch-volume discrepancy and structural modelling assumptions remain unresolved. "
-    "Stage 5 ULS and Stage 6 SLS use separate force sources and editable inputs. "
-    "They do NOT automatically verify the current vehicle or experimental solver envelopes."
-)
+
+
+
+
+# Streamlit BOQ editors use on_change to recompute read-only quantity cells.
+_BOQ_INPUT_MAP = {
+    'Nos': 'nos',
+    'Length (m)': 'length_m',
+    'Width (m)': 'width_m',
+    'Depth (m)': 'depth_m',
+}
+
+
+def _boq_update_group(group, widget_key):
+    """Apply edits before rerender, including recalculated quantity cells."""
+    changes = st.session_state.get(widget_key, {}).get('edited_rows', {})
+    matched = [r for r in st.session_state['_boq_rows']
+               if (r['section'], r['group']) == group]
+    for row_index, fields in changes.items():
+        row = matched[int(row_index)]
+        for display_name, value in fields.items():
+            field = _BOQ_INPUT_MAP.get(display_name)
+            if field is not None:
+                row[field] = value
+    # A fresh widget key prevents the old read-only Quantity values from being
+    # reused after this rerun by Streamlit's persistent data-editor state.
+    st.session_state['_boq_editor_revision'] += 1
+
+
+def _boq_editor_data(rows):
+    return [
+        {'Item': r['item'], 'Unit': 'Cum', 'Nos': r['nos'],
+         'Length (m)': r['length_m'], 'Width (m)': r['width_m'],
+         'Depth (m)': r['depth_m'], 'Quantity (m³)': round(r['quantity_m3'], 3)}
+        for r in rows
+    ]
+
 
 with st.sidebar:
     st.header("Design inputs")
@@ -127,16 +154,13 @@ with st.sidebar:
         height=72, key=f'wheel_distances_{vehicle_code}',
     )
     if vehicle_code == '70rt':
-        st.info('The workbook represents the 70 tf tracked load by five equivalent '
-                '14 tf stations spaced 0.914 m apart. These are NOT five physical wheels.')
+        pass
     elif vehicle_code == 'sv385':
-        st.info('385T: 20 trailer axles at 18 tf each plus three prime-mover axles '
-                '(9.5, 9.5, 6 tf). The workbook uses a special transverse dispersion '
-                'rule. Dynamic impact and braking are excluded by default.')
+        pass
     elif vehicle_code == '40t':
         st.caption('Workbook: 40T BOGIE, two 20 tf loads at 1.22 m spacing; not a tracked load.')
     elif vehicle_code == 'custom':
-        st.info('Custom Pattern is preserved. Enter N loads and exactly N−1 positive spacings.')
+        pass
     lead_axle = st.number_input(
         'Leading station / first axle position x (m)', min_value=0.0,
         value=preset_inputs.lead_axle_position_m, step=0.05, format='%.3f',
@@ -298,7 +322,7 @@ try:
     )
 except (ValueError, TypeError) as exc:
     st.error(f"Invalid input: {exc}")
-    st.info("Check your dimensions and soil/braking inputs in the sidebar.")
+    pass
     st.stop()
 
 if enable_frame and vehicle_code in ('70rt', 'sv385'):
@@ -371,10 +395,10 @@ m2.metric("External height", f"{g['external_height_m']:.3f} m")
 m3.metric("Concrete volume", f"{g['concrete_volume_m3']:.3f} m³")
 m4.metric("Self-weight (unfactored)", f"{loads['concrete_self_weight_kn']:,.2f} kN")
 
-tab_drawing, tab_calcs, tab_earth, tab_traffic, tab_vehicle, tab_combo, tab_solver, tab_analysis, tab_uls, tab_sls, tab_bbs, tab_boq, tab_rebar, tab_ref, tab_export, tab_notes = st.tabs([
+tab_drawing, tab_calcs, tab_earth, tab_traffic, tab_vehicle, tab_combo, tab_solver, tab_analysis, tab_uls, tab_sls, tab_bbs, tab_boq, tab_rebar = st.tabs([
     "📐 Drawing", "🧮 Calculations", "🌍 Earth pressure", "🚛 Braking forces",
     "🚚 Vehicle axles & dispersion", "🧾 Factor sets", "🧱 In-app frame solver", "🏗️ STAAD result comparison",
-    "🛡️ ULS design checks", "🔎 SLS checks", "🪛 BBS steel schedule", "📦 BOQ quantities", "📐 Reinforcement drawings", "📋 Reference comparison", "📥 Downloads", "ℹ️ Roadmap"
+    "🛡️ ULS design checks", "🔎 SLS checks", "🪛 BBS steel schedule", "📦 BOQ quantities", "📐 Reinforcement drawings"
 ])
 
 with tab_drawing:
@@ -393,12 +417,7 @@ with tab_drawing:
                                key="geometry_png_download")
         else:
             st.error("Geometry drawing could not be generated. See the error message above.")
-        st.info(
-            f"Current inputs: clear opening **{width:.3f} × {height:.3f} m**, "
-            f"external box **{g['external_width_m']:.3f} × {g['external_height_m']:.3f} m**, "
-            + (f"four **{haunch_width} × {haunch_height} mm** triangular haunches."
-               if use_haunches else "haunches disabled.")
-        )
+        pass
         st.caption("Dimensions are schematic; reinforcement, haunch-area reconciliation and construction details remain unverified.")
     with load_tab:
         st.markdown("**Stage 2–3: earth-pressure and braking-reference diagram**")
@@ -410,13 +429,6 @@ with tab_drawing:
                                key="loads_png_download")
         else:
             st.error("Load diagram could not be generated. See the error message above.")
-        st.warning(
-            "The left/right arrow placement separates different *illustrations* for readability. "
-            "It does not specify which side walls receive loads in a real load case. "
-            "A separate Stage 4B FEM solver tab now applies selected braking/axle loads to a frame under explicit assumptions. "
-            "The illustrative Stage 2–3 drawing is NOT the FEM application diagram. "
-            "No verified STAAD actions or code-approved load combinations are established."
-        )
 
     with axle_tab:
         st.markdown("**Stage 3: wheel loads with impact and spreadsheet effective-width dispersion**")
@@ -425,8 +437,6 @@ with tab_drawing:
             st.download_button("Download vehicle-loading schematic PNG",data=vehicle_png_bytes,
                                file_name="culvert_vehicle_axle_reference.png",mime="image/png",
                                key="vehicle_diagram_download")
-        st.warning("The longitudinal axle reference is projected above a transverse box-section for clarity; "
-                   "this does not specify a verified structural application direction or position.")
 
     with fem_tab:
         st.markdown("**Stage 4B: independent Python frame model and *member-end* result magnitudes**")
@@ -436,16 +446,12 @@ with tab_drawing:
             st.download_button("Download solved-frame PNG", frame_png_bytes,
                                file_name="culvert_frame_solver.png", mime="image/png", key="fem_draw_png")
         else:
-            st.info("Enable Run in-app FEM structural model in the sidebar.")
-        st.warning("Orange displacement is exaggerated. Force bars are local member-END actions, "
-                   "not a moment/shear design envelope. Solver assumptions require engineer review.")
+            pass
 
     with gad_tab:
         st.subheader("General Arrangement Drawing — Sheet 1")
         st.caption("Rebuilt from the layout of your original Sheet 1: Section A-A, plan, key plan, notes, design data and A2 title block. "
                    "The box geometry is dynamic; wing walls, site levels, aprons and other site geometry remain reference values unless edited.")
-        st.warning("REFERENCE RECONSTRUCTION ONLY. This is NOT a pixel-identical replacement for the original CAD, "
-                   "and the site/wing-wall geometry has not been independently designed or verified.")
         ca,cb,cc=st.columns([1,1,1])
         chain=ca.text_input("Drawing chainage",value="36+925",key="gad_chainage")
         apron_l=cb.number_input("D/S apron length (m)",value=6.0,min_value=0.1,step=0.5,key="gad_apron_left")
@@ -495,8 +501,7 @@ with tab_drawing:
             with d3:
                 st.download_button("Download Sheet 1 DXF (paper layout)",gad_dxf,
                                    file_name="GAD_Sheet1_Review.dxf",mime="application/dxf",key="gad_sheet1_dxf")
-            st.info("DXF is an editable A2 paper-layout drawing in millimetres, NOT 1:1 site CAD geometry. "
-                    "Wing walls, embankment, curtain walls, levels, title-block details and dimensions still need a drawing-by-drawing check.")
+            pass
         except Exception as error:
             st.error(f"GAD Sheet 1 generation failed: {error}")
 
@@ -505,9 +510,6 @@ with tab_drawing:
         st.subheader("General Arrangement - Sheet 2: Detailed Sections")
         st.caption("Reconstructed from the second page of the original General Arrangement Drawing: "
                    "Section B-B, Section C-C, Curtain Walls Type I/II, Shear Key X, and the U-type wing wall reference.")
-        st.warning("ENGINEERING REVIEW OUTPUT ONLY. Dynamic box geometry is linked to your inputs; "
-                   "the curtain-wall profiles, embankment references and wing-wall sketch are not independently designed. "
-                   "The DXF uses A2 paper coordinates, NOT real-world 1:1 model coordinates.")
         ds1,ds2,ds3=st.columns(3)
         sheet2_chain=ds1.text_input("Sheet 2 chainage",value="36+925",key="sheet2_chainage")
         sheet2_pcc=ds2.number_input("PCC bedding thickness (mm)",min_value=25,max_value=200,
@@ -553,10 +555,7 @@ with tab_drawing:
             with f3:
                 st.download_button("Download Sheet 2 DXF (paper layout)",d2_dxf,"GAD_Sheet2_Review.dxf",
                                    "application/dxf",key="sheet2_dxf")
-            st.info("Section B-B/C-C dimensions and haunches follow the main culvert inputs. "
-                    "Original drawing notes for PCC, geotextile, curtain-wall types and shear key "
-                    "are shown as reference details. Wing-wall dimensions and shear-key depth "
-                    "require the original separate designs or engineer confirmation.")
+            pass
         except Exception as error:
             st.error(f"Detailed Section Sheet 2 generation failed: {error}")
 
@@ -598,7 +597,7 @@ with tab_earth:
         st.latex(r"p_{soil}(z)=K_0\gamma_{soil}z")
         st.latex(r"p_{surcharge}=K_0\gamma_{soil}h_{eq}")
         st.latex(r"p_{cushion}=K_0\gamma_{soil}h_{fill}")
-        st.info("Depth z is measured from the top slab upper surface as inferred from the design-note pressure table. Earth cushion pressure is shown separately, not added automatically to depth-based earth pressure. Confirm the datum and load combinations with the engineer.")
+        pass
         sample = earth_results["pressure_at_bottom_slab_centreline"]
         c1, c2, c3 = st.columns(3)
         c1.metric("Soil pressure at reference bottom", f"{sample['earth_pressure_t_m2']:.3f} tf/m²")
@@ -620,19 +619,17 @@ with tab_earth:
         st.subheader("Compare with design note — page 2")
         st.dataframe(earth_results["design_note_reference_comparison"], hide_index=True, use_container_width=True)
         st.caption("Reference pressures only match when K₀=0.5 and soil density=2.0 tf/m³. Locations are the original design-note depths, not recalculated for modified geometry.")
-        st.warning("This tab does not calculate resultant wall forces, structural moments, STAAD results, ULS/SLS, or design approval. Reference wheel loading is now shown separately in the Vehicle axles tab.")
     except ValueError as exc:
         st.error(f"Earth pressure inputs are invalid: {exc}")
 
 with tab_traffic:
     st.subheader("Stage 3 — Traffic braking-force summary")
     st.caption("Design note, page 2: Class 70R(W) + A and Class 40T + A braking-force summaries. Units are metric tonne-force (tf).")
-    st.warning("These braking contributions are copied from the design note. Wheel loading and spreadsheet dispersion are calculated separately in the Vehicle axles tab; complete vehicle standard validation and structural design load combinations remain pending.")
     cases = braking_results["cases"]
     st.latex(r"F_{total}=F_{vehicle}+F_{Class\ A}")
     st.latex(r"q_{braking}=F_{total}/L")
     st.dataframe(cases, use_container_width=True, hide_index=True)
-    st.info("Design note reference (12 m): 7.94 tf / 12 ≈ 0.66 tf/m and 9.14 tf / 12 ≈ 0.76 tf/m. The source lists braking moments 0.877 and 1.009 tf·m/m. The adjustable lever arm above is only an illustrative approximation and does not reproduce a verified engineering derivation.")
+    pass
     st.bar_chart({row["Case"]: row["Per-metre force (tf/m)"] for row in cases})
     st.download_button("Download braking-force comparison CSV",
                        data=("Case,Total force (tf),Per-metre force (tf/m),Reference total (tf),Reference per-metre (tf/m)\n" +
@@ -662,9 +659,7 @@ with tab_vehicle:
         'sv385': '385T, x=1.0 m: first trailer axle ≈ 3.272727 tf/m',
         'custom': 'Custom Pattern: no verified Excel reference output',
     }
-    st.info('Reference check, ONLY for the unchanged default geometry/preset: '
-            + workbook_checks[vehicle_code])
-    st.warning(vehicle_results['status'])
+    pass
     with st.expander("Position screening sweep — reference only",expanded=True):
         screening = result['vehicle_position_screening']
         st.write(f"**{screening['positions_checked']}** sampled leading-wheel positions at **{screening['position_step_m']:.2f} m** intervals")
@@ -673,14 +668,9 @@ with tab_vehicle:
         st.caption(f"Lead wheel position for this screening indicator: {screening['peak_sampled_position_m']:.3f} m")
         st.line_chart(screening['samples'], x='lead_position_m',
                       y='sum_strip_intensities_tf_m')
-        st.warning("Summed strip intensities are a SCREENING metric, not design reaction, bending moment or shear.")
-    st.warning('All four source-workbook vehicle types and Custom Pattern are now selectable. '
-               'This reproduces selected arithmetic; actual transverse placements, vehicle '
-               'envelopes, complete IRC combinations and design safety remain unverified.')
 
 with tab_combo:
     st.subheader("Stage 3 — User-defined component load factor set")
-    st.warning("These are *not* IRC-approved ULS/SLS load combinations. The program multiplies each load component by its specified factor and **never sums unlike dimensional quantities**. Proper load combinations require a structural analysis model and engineer-confirmed code provisions.")
     st.dataframe(combo_results['components'],use_container_width=True,hide_index=True)
     st.caption("Dead load: kN/m along culvert length; earth/surcharge/cushion: tf/m² lateral pressure; axle: tf/m effective strip; braking: tf/m horizontal force. These are not all interchangeable loads.")
     st.write("Factor set:", combo_results['name'])
@@ -690,7 +680,7 @@ with tab_solver:
     st.caption("Independent experimental 2D Euler-Bernoulli frame solver, for a 1 m culvert strip. "
                "Not STAAD, not externally benchmarked, and not an IRC-compliant design check.")
     if frame_results is None:
-        st.info("Enable **Run in-app FEM structural model** in the sidebar to compute frame actions.")
+        pass
     else:
         st.success(f"Frame equations solved: {frame_results['node_count']} nodes, "
                    f"{frame_results['element_count']} elements, "
@@ -702,8 +692,7 @@ with tab_solver:
         k4.metric("Force residual Fy", f"{frame_results['equilibrium_residual_fy_kn_per_m']:.2e} kN")
         st.markdown("**1. Applied load components — physically assembled on frame members**")
         st.dataframe(frame_results["load_components"], hide_index=True, use_container_width=True)
-        st.info("Loads are stored and factored in compatible kN per **1 m longitudinal strip**. "
-                "For each selected factor set, the combined frame equations are solved, rather than adding raw pressures to forces.")
+        pass
         st.markdown("**2. Combined member end actions**")
         st.dataframe(frame_results["member_action_summary"], hide_index=True, use_container_width=True)
         st.caption("End actions are local member sign conventions. These are maximum absolute *element-end* values, "
@@ -725,20 +714,12 @@ with tab_solver:
             st.json(frame_results["options"])
             for assumption in frame_results["limitations"]:
                 st.write("•", assumption)
-        st.warning("Small equilibrium residuals show numerical force balance, **not** that supports, "
-                   "springs, wheel geometry or load factors match the engineer's approved model. "
-                   "Obtain a STAAD `.std` model, independent comparisons, and signed engineering review.")
 
 with tab_analysis:
     st.subheader("Stage 4 — Structural analysis results integration")
     st.caption("This separate tab imports engineer-mapped STAAD force results. The new Stage 4B "
                "tab runs an experimental Python frame solver using applied earth, vehicle and other loads. "
                "There is no direct STAAD connection or verified sign/load-case equivalence.")
-    st.warning(
-        "The design note provides ULS / SLS bending moments (page 4) and ULS shear "
-        "forces (page 5). These **reported values are reference data**, not an independently "
-        "verified Python analysis. Raw STAAD files must be interpreted and mapped by the engineer."
-    )
     st.markdown("**1. Prepare STAAD data using the required CSV schema**")
     st.code("case,member,location,action,value,unit\n"
             "ULS,Top slab,Mid span,MZ,-6.8,tf.m/m", language="csv")
@@ -758,7 +739,7 @@ with tab_analysis:
     if uploaded_structural_rows:
         st.success(f"Loaded {len(uploaded_structural_rows)} mapped values from the uploaded CSV (not verified).")
     else:
-        st.info("No STAAD output uploaded. The charts below show **only design-note reference values**.")
+        pass
 
     if not structural_results['reference_geometry_matches']:
         st.error("Current geometry differs from the original 1×3×3 m, 12 m, 0.3 m fill reference. "
@@ -798,7 +779,7 @@ with tab_analysis:
         except Exception as err:
             st.error(f"Stage 4 annotation drawing failed: {err}")
     else:
-        st.info("No values for the selected case and action in this source.")
+        pass
     st.markdown("**2. Numerical comparison to rounded design-note values**")
     if structural_results['comparison']:
         st.dataframe(structural_results['comparison'], hide_index=True,
@@ -806,29 +787,18 @@ with tab_analysis:
         st.caption("Differences are for REVIEW only. Zero difference can occur when the same design-note "
                    "values were copied into the CSV; it is not independent validation or a safety PASS.")
     else:
-        st.info("Upload independent, engineer-mapped output CSV to see numerical differences.")
+        pass
     st.markdown("**3. Integration status**")
     st.write(structural_results['status'])
-    st.warning("This comparison tab displays imported STAAD-mapped values; Stage 4B separately provides "
-               "an experimental Python 2D frame solver with assumed springs and member load application. "
-               "There is NO direct STAAD connection, independent model verification, approved ULS/SLS "
-               "capacity, shear, crack-width, reinforcement, BBS or BOQ.")
 
 with tab_uls:
     st.subheader("Stage 5 — Ultimate Limit State (ULS) design inputs")
     st.caption("Flexure, distribution steel, shear capacity, and stirrup checks based on the original engineering workbook formulas.")
-    st.warning(
-        "**Engineering review required.** ULS capacity checks need the governing member-action "
-        "envelopes from a verified structural model with approved load combinations. "
-        "The in-app frame solver is experimental and is NOT automatically treated as an approved ULS source."
-    )
     source_uls = result["uls_design"]
     if not source_uls["reference_geometry_matches"]:
         st.error("The current geometry, fill, material or haunch data differ from the original reference. "
                  "Update section depths, reinforcement and every demand for the revised structure. "
                  "Do not reuse the old design actions as an approved design.")
-    else:
-        st.info("Dimensions match the nominal workbook example, but that does NOT validate the active vehicle loading or structural analysis.")
 
     demand_mode = st.radio(
         "Where do the ULS bending moments and shear forces come from?",
@@ -849,10 +819,7 @@ with tab_uls:
         key="uls_force_template",
     )
     if uploaded_structural_rows:
-        st.info(f"Stage 4 has {len(uploaded_structural_rows)} imported force records. "
-                "Those general STAAD-mapped stations do not cover all ULS faces and locations. "
-                "Use the ULS template to map the complete, engineer-reviewed governing actions "
-                "before importing them here. We do not fill missing actions with old Excel results.")
+        pass
 
     imported_uls = {}
     current_source = "Original Excel cached ULS demands (reference case only)"
@@ -860,16 +827,14 @@ with tab_uls:
     if demand_mode == "Manual engineer-entered forces":
         current_source = "Manually entered ULS design-section demands (review required)"
         editor_suffix = "manual"
-        st.info("Enter your own Mu and Vu values in the tables below. Values initially shown are only "
-                "placeholders from the original workbook. Replace them with engineer-approved demands.")
+        pass
     elif demand_mode == "Engineer-mapped ULS force CSV":
         current_source = "Engineer-mapped ULS force CSV (not independently verified)"
         uploaded_uls_csv = st.file_uploader(
             "Upload completed ULS force mapping CSV", type=["csv"], key="uls_forces_csv_upload",
         )
         if uploaded_uls_csv is None:
-            st.info("Upload the completed CSV to calculate ULS checks using imported forces. "
-                    "The ULS reference values will NOT be treated as the imported values.")
+            pass
             st.stop()
         try:
             csv_bytes = uploaded_uls_csv.getvalue()
@@ -991,8 +956,7 @@ with tab_uls:
         st.stop()
 
     if changes:
-        st.info(f"{changes} editable input value(s) changed. Checks and CSV/JSON reports "
-                "now use the displayed trial values.")
+        pass
     st.caption(f"**Current ULS force source:** {uls['demand_source']}")
     a1, a2, a3 = st.columns(3)
     a1.metric("Flexural sections evaluated", len(uls["flexure"]))
@@ -1064,12 +1028,7 @@ with tab_uls:
 
 with tab_sls:
     st.subheader("Stage 6 — Serviceability Limit State (SLS)")
-    st.info(
-        "SLS uses **separate rare-combination and quasi-permanent bending moments**. "
-        "It shares section geometry, material grades and reinforcement data with ULS, "
-        "but it **does not use ULS factored moments**. Original Excel values are reference inputs, "
-        "not live results for the currently selected vehicle and geometry."
-    )
+    pass
     sls_source_mode = st.radio(
         "SLS demand source",
         ["Original Excel reference", "Manual engineer-entered demands", "Engineer-mapped SLS force CSV"],
@@ -1087,7 +1046,7 @@ with tab_sls:
         source_name = "Uploaded engineer-mapped SLS moments (not independently verified)"
         file = st.file_uploader("Upload complete SLS force CSV", type="csv", key="sls_csv_upload")
         if file is None:
-            st.info("Upload an SLS force file containing every required section. No reference demands are silently substituted.")
+            pass
             st.stop()
         try:
             demand_overrides = parse_sls_demands_csv(file.getvalue())
@@ -1225,10 +1184,6 @@ with tab_sls:
 # reference cut lengths/counts and general BOQ quantities unless edited by sir.
 with tab_bbs:
     st.subheader("Stage 7 — Bar Bending Schedule (BBS)")
-    st.warning("**Engineer review required.** This schedule uses cached entries in the matching "
-               "`BBS (2)` worksheet. Cutting lengths, bar counts, bends, laps and actual "
-               "bar shapes are NOT generated from ULS/SLS or from geometry changes. "
-               "Three reference bar marks have missing diameters; no replacement values are invented.")
     st.caption("Change bar diameter, cutting length or count to calculate a trial steel quantity. "
                "Only an approved reinforcement drawing and engineer-reviewed schedule can authorize fabrication.")
     bbs_col1,bbs_col2=st.columns(2)
@@ -1243,7 +1198,7 @@ with tab_bbs:
     if bbs_upload is not None:
         try:
             bbs_base=parse_bbs_csv(bbs_upload.getvalue())
-            st.info("Imported BBS trial inputs. Original reference values are still available in the workbook.")
+            pass
         except (ValueError,TypeError) as exc:
             st.error(f"BBS CSV rejected: {exc}")
             st.stop()
@@ -1273,87 +1228,123 @@ with tab_bbs:
         bm1.metric('Scheduled steel (before allowance)',f"{bbs_result['net_steel_kg']:,.2f} kg")
         bm2.metric('Allowance',f"{bbs_result['allowance_kg']:,.2f} kg")
         bm3.metric('Scheduled steel (total)',f"{bbs_result['total_steel_t']:.3f} t")
+        # Show completed BBS lines only in the read-only summary. Incomplete source
+        # entries stay in the editable BBS input table and in bbs_result/CSV so they
+        # cannot be silently counted or substituted with assumed bar sizes.
+        visible_bbs_lines = [
+            x for x in bbs_result['lines']
+            if not x['status'].startswith(('Missing bar diameter', 'Missing cutting length'))
+        ]
         st.dataframe([{'Bar mark':x['mark'],'Member':x['member'],'Weight (kg)':round(x['weight_kg'],3),
-                       'Status':x['status']} for x in bbs_result['lines']],use_container_width=True,
+                       'Status':x['status']} for x in visible_bbs_lines],use_container_width=True,
                      hide_index=True,height=380)
         plot=bbs_weight_chart(bbs_result)
         st.pyplot(plot)
         plt.close(plot)
         st.download_button('Download calculated BBS (CSV)',bbs_result_csv(bbs_result),
                            file_name='bbs_calculated_trial.csv',mime='text/csv',key='bbs_result')
-        for msg in bbs_result['warnings']:
-            st.warning(msg)
     except (ValueError,TypeError) as exc:
         st.error(f"Cannot calculate BBS: {exc}")
 
 with tab_boq:
-    st.subheader("Stage 7 — Bill of Quantities (BOQ)")
-    st.info("**Two different sources:** Basic culvert concrete volumes update from the current geometry. "
-            "The other BOQ lines come from the original workbook and do NOT automatically "
-            "change with your input dimensions. Their values can be manually reviewed/edited.")
-    st.caption("SLS drawings are not required for this tab. The charts here are quantity summaries, "
-               "not construction drawings or reinforcement detailing.")
-    st.download_button('Download editable BOQ template (CSV)',boq_template_csv(),
-                       file_name='boq_input_template.csv',mime='text/csv',key='boq_template')
-    boq_upload=st.file_uploader('Optional: import saved BOQ template',type=['csv'],key='boq_upload')
-    from_csv_overrides={}
-    if boq_upload is not None:
-        try:
-            from_csv_overrides=parse_boq_csv(boq_upload.getvalue())
-        except (ValueError,TypeError) as exc:
-            st.error(f"BOQ CSV rejected: {exc}")
-            st.stop()
-    source_boq=reference_boq_items()
-    boq_edit_rows=[{'id':x['id'], 'Item':x['description'], 'Unit':x['unit'],
-                    'Excel reference':float(x['reference_quantity']),
-                    'Working quantity':float(from_csv_overrides.get(x['id'],x['reference_quantity']))}
-                   for x in source_boq]
-    edited_boq=st.data_editor(boq_edit_rows,disabled=['id','Item','Unit','Excel reference'],
-                              use_container_width=True,hide_index=True,num_rows='fixed',
-                              key='stage7_boq_editor',height=440)
-    if hasattr(edited_boq,'to_dict'):
-        edited_boq=edited_boq.to_dict('records')
-    overrides={}
-    for row in edited_boq:
-        original=next(x['reference_quantity'] for x in source_boq if x['id']==row['id'])
-        newval=float(row['Working quantity'])
-        if not math.isclose(newval,original,rel_tol=0,abs_tol=1e-9):
-            overrides[row['id']]=newval
+    st.subheader('Bill of Quantities (BOQ)')
+    st.caption('Edit Nos, Length, Width or Depth directly in the tables. '
+               'Quantity and subtotals calculate automatically in m³.')
+
+    # Start from the current design inputs. Reset only if the sidebar geometry
+    # actually changes; unrelated tabs/reruns must preserve BOQ edits.
+    boq_signature = (inputs.clear_width_m, inputs.clear_height_m, inputs.length_m,
+                     inputs.wall_thickness_m, inputs.top_slab_thickness_m,
+                     inputs.bottom_slab_thickness_m, inputs.haunch_width_m,
+                     inputs.haunch_height_m, inputs.haunch_count)
+    if st.session_state.get('_boq_signature') != boq_signature:
+        st.session_state['_boq_signature'] = boq_signature
+        st.session_state['_boq_rows'] = editable_boq_template(inputs)
+        st.session_state['_boq_editor_revision'] = st.session_state.get('_boq_editor_revision', 0) + 1
+
+    if st.button('Reset BOQ dimensions to sidebar inputs', key='boq_reset'):
+        st.session_state['_boq_rows'] = editable_boq_template(inputs)
+        st.session_state['_boq_editor_revision'] += 1
+        st.rerun()
+
+    boq_inputs = st.session_state['_boq_rows']
     try:
-        boq_result=calculate_boq(inputs,result.get('bbs'),overrides)
-        result['boq']=boq_result
-        core=boq_result['core_quantities']
-        st.markdown('#### Geometry-linked culvert quantities')
-        st.dataframe(core,hide_index=True,use_container_width=True)
-        vol=next(x['quantity'] for x in core if x['description'].startswith('TOTAL'))
-        metric1,metric2,metric3=st.columns(3)
-        metric1.metric('Current culvert concrete',f'{vol:,.3f} m³')
-        metric2.metric('Original BOQ culvert concrete',f"{boq_result['reference_box_concrete_m3']:,.3f} m³")
-        metric3.metric('BOQ steel estimator vs BBS',f"{boq_result['boq_vs_bbs_rebar_difference_t']:+,.3f} t")
-        plot=boq_concrete_chart(boq_result)
-        st.pyplot(plot)
-        plt.close(plot)
-        st.download_button('Download reviewed BOQ quantities (CSV)',boq_result_csv(boq_result),
-                           file_name='boq_calculated_trial.csv',mime='text/csv',key='boq_result')
-        for message in boq_result['warnings']:
-            st.warning(message)
-    except (ValueError,TypeError) as exc:
-        st.error(f"Cannot calculate BOQ: {exc}")
+        boq_data = calculate_editable_boq(boq_inputs)
+    except ValueError as exc:
+        st.error(f'Invalid BOQ input: {exc}')
+        st.stop()
+
+    group_headings = {
+        ('Substructure', 'Up to 5m'): 'SUBSTRUCTURE — Up to 5m height',
+        ('Substructure', 'Above 5m'): 'SUBSTRUCTURE — Above 5m height',
+        ('Superstructure', 'Top slab'): 'SUPERSTRUCTURE — Top slab',
+    }
+    for group in BOQ_GROUPS:
+        st.markdown('#### ' + group_headings[group])
+        group_rows = [r for r in boq_data['rows'] if (r['section'], r['group']) == group]
+        editor_key = f'boq_edit_{group[0].lower()}_{group[1].replace(" ", "_")}_{st.session_state["_boq_editor_revision"]}'
+        st.data_editor(
+            _boq_editor_data(group_rows),
+            key=editor_key, on_change=_boq_update_group, args=(group, editor_key),
+            disabled=['Item', 'Unit', 'Quantity (m³)'],
+            hide_index=True, use_container_width=True, num_rows='fixed',
+            column_config={
+                'Item': st.column_config.TextColumn('Item', width='large'),
+                'Unit': st.column_config.TextColumn('Unit', width='small'),
+                'Nos': st.column_config.NumberColumn('Nos', min_value=0, step=1, format='%d'),
+                'Length (m)': st.column_config.NumberColumn('Length (m)', min_value=0.0, step=0.05, format='%.3f'),
+                'Width (m)': st.column_config.NumberColumn('Width (m)', min_value=0.0, step=0.05, format='%.3f'),
+                'Depth (m)': st.column_config.NumberColumn('Depth (m)', min_value=0.0, step=0.025, format='%.3f'),
+                'Quantity (m³)': st.column_config.NumberColumn('Quantity (m³)', format='%.3f'),
+            },
+        )
+        st.markdown(f'**Subtotal: {boq_data["groups"][group]:,.3f} m³**')
+
+    st.markdown('#### Total concrete')
+    a,b,c = st.columns(3)
+    a.metric('Substructure', f'{boq_data["substructure_m3"]:,.3f} m³')
+    b.metric('Superstructure', f'{boq_data["superstructure_m3"]:,.3f} m³')
+    c.metric('TOTAL RCC', f'{boq_data["total_concrete_m3"]:,.3f} m³')
+
+    # CSV contains the CURRENT, recalculated values, not a cached reference.
+    import csv
+    boq_csv = io.StringIO(newline='')
+    writer = csv.writer(boq_csv)
+    writer.writerow(['Section', 'Group', 'Item', 'Unit', 'Nos', 'Length (m)', 'Width (m)',
+                     'Depth (m)', 'Quantity (m³)'])
+    for r in boq_data['rows']:
+        writer.writerow([r['section'], r['group'], r['item'], 'Cum', r['nos'],
+                         r['length_m'], r['width_m'], r['depth_m'], round(r['quantity_m3'], 6)])
+    for group, qty in boq_data['groups'].items():
+        writer.writerow([group[0], group[1], 'SUBTOTAL', 'Cum', '', '', '', '', round(qty, 6)])
+    writer.writerow(['', '', 'TOTAL RCC', 'Cum', '', '', '', '', round(boq_data['total_concrete_m3'], 6)])
+    st.download_button('Download BOQ CSV', boq_csv.getvalue().encode('utf-8-sig'),
+                       file_name='editable_culvert_boq.csv', mime='text/csv', key='boq_editable_csv')
+
+    with st.expander('Other dimensions from reference (retaining wall, apron, curtain wall)'):
+        st.caption('You can edit these reference dimensions, but they do not have '
+                   'verified quantity formulas and are not included in the totals above.')
+        ref_rows = boq_sketch_parameters(inputs)['other_works_reference']
+        if '_boq_site_reference_rows' not in st.session_state:
+            st.session_state['_boq_site_reference_rows'] = ref_rows
+        st.data_editor(st.session_state['_boq_site_reference_rows'],
+                       hide_index=True, use_container_width=True, num_rows='fixed',
+                       disabled=['Parameter', 'Unit'], key='boq_other_dims_editor')
+
+    # Keep legacy BOQ result for project-wide exports and report consumers.
+    # Its geometry-linked quantities follow the sidebar, not editable BOQ rows.
+    try:
+        result['boq'] = calculate_boq(inputs, result.get('bbs'), {})
+    except (ValueError, TypeError) as exc:
+        st.error(f'BOQ calculation failed: {exc}')
+    st.caption('BOQ edits affect the displayed schedule and its CSV, not structural analysis or drawings. '
+               'A qualified engineer must check quantities before construction use.')
 
 with tab_rebar:
     st.subheader("Stage 8 — Reinforcement drawing review sheets")
-    st.warning("**Drawing-review package only — NOT FOR FABRICATION OR CONSTRUCTION.** "
-               "The sheets represent reference bar locations and shapes from the supplied "
-               "reinforcement PDF, cross-checked with BBS (2). Actual bars, curtailments, "
-               "bends, lap lengths and anchorage require review by your structural engineer.")
-    st.info("The SLS calculations remain unchanged. No SLS drawings are required or added.")
     rebar_bbs = result.get("bbs")
     rebar_review = build_reinforcement_review(inputs, rebar_bbs)
     result["reinforcement_review"] = rebar_review
-    a1,a2,a3=st.columns(3)
-    a1.metric("PDF scheduled marks",len(rebar_review["schedule"]))
-    a2.metric("BBS-only variants",len(rebar_review["bbs_only_marks"]))
-    a3.metric("Review issues",len(rebar_review["issues"]))
     drawing_names = ["Box reinforcement section", "Top and bottom slab plans",
                      "Side wall elevations", "Bar mark and shape schedule", "Corner and lap reference details"]
     drawing_view = st.selectbox("Select reinforcement view",drawing_names, key="stage8_view")
@@ -1389,97 +1380,3 @@ with tab_rebar:
                            mime="application/dxf",key="stage8_review_dxf")
     except Exception as exc:
         st.error(f"Could not generate reinforcement drawing: {exc}")
-    st.markdown("#### PDF bar schedule vs working BBS")
-    st.dataframe([{
-        "Bar mark":x["mark"],"Zone":x["zone"],"PDF dia (mm)":x["diameter_mm"],
-        "PDF spacing / note":x["spacing"],"Shape":x["shape"],
-        "BBS count":x["bbs_count"],"BBS cut (mm)":x["bbs_cut_mm"],"Check":x["status"]
-    } for x in rebar_review["schedule"]],hide_index=True,use_container_width=True,height=410)
-    with st.expander("Items to confirm with your sir",expanded=True):
-        for issue in rebar_review["issues"]:st.write("•",issue)
-    st.caption("PDF reference: reinforcement details drawing, sheet 3. The downloaded PDF "
-               "contains five Python-generated schematic pages, not the original certified drawing.")
-
-with tab_ref:
-    st.subheader("Reference design note comparison — example case only")
-    st.caption("The design note reports component dead loads in tonnes (t) using 2.50 t/m³ concrete density. These are reference quantities, not independently verified design results.")
-    reference = [
-        ("Top slab", 26.25, g["top_slab_volume_m3"] * 2.5),
-        ("Bottom slab", 28.88, g["bottom_slab_volume_m3"] * 2.5),
-        ("Side walls", 45.00, g["walls_volume_m3"] * 2.5),
-        ("Four haunches", 5.40, g["haunch_volume_m3"] * 2.5),
-    ]
-    st.dataframe([{"Component": name, "Design note (t)": ref, "Python schematic (t)": round(calc, 3), "Difference (t)": round(calc - ref, 3)} for name, ref, calc in reference], hide_index=True, use_container_width=True)
-    st.error("**Haunch discrepancy:** 150 × 150 mm right triangles have 0.01125 m² area each. The design note dead-load table instead uses 0.045 m² per haunch. For four haunches over 12 m, this is 0.54 m³ vs 2.16 m³. Do not treat either as final until the engineer confirms the cross-section.")
-    st.info("The reference values apply only to the original design dimensions. Changing inputs does not recalculate the reference design note.")
-    st.caption("Reference: Design Note Of Box Culvert 1x3x3, page 1, Geometric Parameters and Calculation of dead load and SIDL.")
-
-with tab_export:
-    st.subheader("Export current inputs and calculated results")
-    st.caption("JSON/CSV include stages 1–3, design-note reference, imported data and Stage 4B "
-               "frame results when the solver is enabled. Model results are NOT independently validated and "
-               "no code-approved load combinations are implied.")
-    d1, d2, d3 = st.columns(3)
-    with d1:
-        st.download_button("Download JSON", data=to_json_bytes(result), file_name="culvert_results.json", mime="application/json", use_container_width=True)
-    with d2:
-        st.download_button("Download CSV", data=to_csv_bytes(result), file_name="culvert_results.csv", mime="text/csv", use_container_width=True)
-    with d3:
-        if png_bytes:
-            st.download_button("Download PNG", data=png_bytes, file_name="culvert_cross_section.png", mime="image/png", use_container_width=True, key="png_export")
-    if vehicle_png_bytes:
-        st.download_button("Download vehicle-reference PNG",data=vehicle_png_bytes,
-                           file_name="culvert_vehicle_axle_reference.png",mime="image/png",
-                           key="vehicle_png_export")
-    if frame_png_bytes:
-        st.download_button("Download in-app frame results PNG", frame_png_bytes,
-                           file_name="culvert_in_app_frame.png",mime="image/png",key="frame_export_png")
-    if load_png_bytes:
-        st.download_button("Download load schematic PNG", data=load_png_bytes,
-                           file_name="culvert_load_schematic.png", mime="image/png", key="png_load_export")
-    try:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            dxf_path = Path(temp_dir) / "culvert_outline.dxf"
-            export_schematic_dxf(inputs, dxf_path)
-            dxf_bytes = dxf_path.read_bytes()
-        st.download_button("Download CAD-compatible DXF schematic", data=dxf_bytes, file_name="culvert_outline.dxf", mime="application/dxf")
-        with tempfile.TemporaryDirectory() as temp_dir:
-            vehicle_dxf_path = Path(temp_dir) / "culvert_vehicle_reference.dxf"
-            export_vehicle_reference_dxf(inputs, vehicle_results, vehicle_dxf_path)
-            vehicle_dxf = vehicle_dxf_path.read_bytes()
-        st.download_button("Download axle-reference DXF (schematic only)", data=vehicle_dxf,
-                           file_name="culvert_vehicle_reference.dxf",mime="application/dxf")
-    except ImportError:
-        st.info("DXF export needs ezdxf. Install with: py -3.14 -m pip install ezdxf")
-    except Exception as exc:
-        st.error(f"DXF export failed: {exc}")
-
-with tab_notes:
-    st.subheader("Implementation status and engineering limitations")
-    st.markdown("**Stage 1:** Geometry, haunch quantities and preliminary concrete self-weight.")
-    st.markdown("**Stage 2:** Earth, surcharge and fill pressure magnitudes. Stage 4B now applies "
-                "assumed pressure distributions to the frame members, including vertical fill over the top slab.")
-    st.markdown('**Stage 3:** Four workbook-derived vehicle presets (70R wheeled, 40T bogie, '
-                '70R tracked equivalent, 385T SV) plus Custom Pattern. Reference impact/dispersion '
-                'are computed separately. The Stage 4B mapping is not valid for every pattern.')
-    st.markdown("**Stage 4A:** Engineer-mapped STAAD CSV result comparison with reported design-note moments/shears.")
-    st.markdown("**Stage 4B:** Experimental Python plane-frame FEM with beam-column stiffness, "
-                "soil springs, concrete dead, lateral soil/surcharge/cushion, vertical fill, "
-                "axle strip loads and braking load application, plus a combined factor-set solve. "
-                "There is no direct STAAD connection, no validated IRC design combination, and no safety certification.")
-    st.markdown("**Stage 5 ULS:** Reference checks now calculate flexure, "
-                "distribution reinforcement, nominal shear capacity and stirrup checks. "
-                "Demands are still cached reference values, not approved envelopes.")
-    st.markdown("**Stage 8 reinforcement drawings:** Box section, slab plans, bar-mark shapes, X/Y/Z and lap reference sketches; PDF/DXF/PNG review output. Missing bar diameters, h3 and construction details remain unverified.")
-    st.markdown("**Stage 7 BBS/BOQ:** Editable BBS (2) reference bar masses and dynamic core concrete volumes; "
-                "general BOQ quantities are cached/manual, not a completed engineering takeoff.")
-    st.markdown("**Stage 6 SLS:** Original design-sheet short-term rare stress and quasi-permanent crack-width checks; "
-                "editable trial inputs and complete engineer-mapped SLS demands. Long-term and deflection remain pending.")
-    st.markdown("**Pending:** Verify frame geometry, loading datum, soil interaction, support arrangement, "
-                "wheel distribution and sign conventions against an actual STAAD model; "
-                "independently benchmark/mesh-refine the solver; IRC ULS/SLS combinations and "
-                "structural design capacity, long-term SLS, deflection, and verified bar/detail quantities.")
-    st.subheader("Engineering work still required")
-    for limitation in result["limitations"]:
-        st.write("•", limitation)
-    st.warning("Do not use this prototype for design or construction without structural engineering validation and approval.")
