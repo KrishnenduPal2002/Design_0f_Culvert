@@ -134,7 +134,11 @@ def _s1_set_width_from_total():
     _s1_sync_geometry()
 
 
-if "s1_effective_span" not in st.session_state:
+# This application supports only a single-cell culvert. Reset older sessions
+# that may have retained an unsupported multi-cell setting.
+_s1_cells_were_changed = int(st.session_state["s1_cells"]) != 1
+st.session_state["s1_cells"] = 1
+if "s1_effective_span" not in st.session_state or _s1_cells_were_changed:
     _s1_sync_geometry()
 
 with st.sidebar:
@@ -150,8 +154,9 @@ with st.sidebar:
                              format="%.3f", key="s1_clear_height", on_change=_s1_sync_geometry)
     length = st.number_input("Total length of structure (m)", min_value=0.01,
                              value=12.00, step=0.25, format="%.3f")
-    number_of_cells = st.number_input("Number of cells", min_value=1, max_value=20,
-                                     step=1, key="s1_cells", on_change=_s1_sync_geometry)
+    number_of_cells = st.number_input("Number of cells", min_value=1, max_value=1,
+                                     step=1, key="s1_cells", disabled=True,
+                                     help="Fixed at 1: this is a single-cell box culvert.")
 
     st.markdown("**Concrete thicknesses**")
     wall = st.number_input("Side wall thickness (m)", min_value=0.01, step=0.025,
@@ -1256,14 +1261,12 @@ with design_moment_calc_tab:
     st.subheader('Design moment due to different load combination')
     st.caption('Sign convention: +ve MZ causes tension at the top of the member; '
                '-ve MZ causes tension at the bottom. Units: t-m/m.')
-    st.caption('Edit the Normal and LL components below. ULS, Rare and Quasi-Permanent totals '
-               'are calculated in the result table; values initially come from the original Excel load sheet.')
 
     moment_editable_columns = ('ULS Normal', 'ULS LL', 'Rare Normal', 'Rare LL',
                                'Quasi Normal', 'Quasi LL')
     if 'design_moment_editor_version' not in st.session_state:
         st.session_state['design_moment_editor_version'] = 0
-    if st.button('Reset design moments to Excel values', key='design_moment_reset'):
+    if st.button('Reset Design Moments', key='design_moment_reset'):
         st.session_state['design_moment_editor_version'] += 1
 
     original_moments = default_design_moment_rows()
@@ -1316,12 +1319,9 @@ with design_moment_calc_tab:
 
     st.divider()
     st.markdown('### ULS Shear Force (t/m)')
-    st.caption('Values are from the original Excel ULS shear-force table. '
-               'Edit Normal or LL; the Total is recalculated below. '
-               'These reference shear forces are not automatically linked to ULS design demands.')
     if 'design_shear_editor_version' not in st.session_state:
         st.session_state['design_shear_editor_version'] = 0
-    if st.button('Reset shear forces to Excel values', key='design_shear_reset'):
+    if st.button('Reset Shear Forces', key='design_shear_reset'):
         st.session_state['design_shear_editor_version'] += 1
 
     original_shears = default_design_shear_rows()
