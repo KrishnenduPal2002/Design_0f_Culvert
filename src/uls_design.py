@@ -42,12 +42,16 @@ def flexural_check(
     provided_as_mm2_per_m: float, fck_mpa: float = 35,
     fy_mpa: float = 500, fctm_mpa: float | None = None,
     steel_modulus_gpa: float = 200,
+    tonne_force_to_kn: float = 10.0,
 ) -> dict:
     """Reproduce workbook's rectangular 1m strip ULS flexural arithmetic.
 
     Workbooks store moments as tf·m / m and depth in mm. This deliberately
-    follows Excel's 100 conversion factor, rather than silently substituting
-    another t-to-kN conversion convention. Review against IRC 112 with engineer.
+    follows Excel's rounded 10 kN/tf reference conversion by default. For
+    live FEM results (which are assembled in kN), pass 9.80665 kN/tf to keep
+    the moment and steel design arithmetic dimensionally consistent. This
+    preserves the source workbook's original numbers in reference mode.
+    Section capacity assumptions still need engineering verification.
     """
     M = abs(float(moment_tf_m_per_m))
     if not math.isfinite(M):
@@ -61,10 +65,15 @@ def flexural_check(
     Es = _require_positive("steel modulus", steel_modulus_gpa)
     fctm = fctm_mpa if fctm_mpa is not None else 0.259 * fck ** (2 / 3)
     fctm = _require_positive("fctm", fctm)
+    tf_to_kn = _require_positive("tonne-force to kN conversion", tonne_force_to_kn)
     xu_ratio = .0035 / (.0035 + .87 * fy / (Es * 1000))
     r_lim = .36 * fck * xu_ratio * (1 - .416 * xu_ratio)
-    d_min = 1000 * math.sqrt(M / (100 * r_lim)) if M else 0.0
-    discriminant = 1 - 4.6 * M / (fck * 100 * (d / 1000)**2)
+    # The workbook replaces 1 tf with 10 kN. For live FEM 1 tf is 9.80665
+    # kN, so convert M(tf.m/m) to kN.m/m explicitly before applying the
+    # same rectangular-section resistance equations.
+    moment_knm = M * tf_to_kn
+    d_min = 1000 * math.sqrt(moment_knm / (1000 * r_lim)) if M else 0.0
+    discriminant = 1 - 4.6 * moment_knm / (fck * 1000 * (d / 1000)**2)
     if discriminant < 0:
         ast_required = None
         reason = "Moment exceeds the domain of the Excel singly-reinforced equation"
@@ -81,7 +90,8 @@ def flexural_check(
     under_reinforced = As < as_limit
     checks_pass = depth_ok and steel_ok and under_reinforced
     return {
-        "moment_tf_m_per_m": M, "effective_depth_mm": d,
+        "moment_tf_m_per_m": M, "moment_knm_per_m": moment_knm,
+        "tonne_force_to_kn": tf_to_kn, "effective_depth_mm": d,
         "provided_as_mm2_per_m": As,
         "xu_max_over_d": xu_ratio, "xu_max_mm": xu_max_mm,
         "r_lim_mpa": r_lim, "d_min_mm": d_min,

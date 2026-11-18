@@ -132,6 +132,107 @@ def _build_mesh(inputs: CulvertInputs, options: FrameOptions):
     return np.array(nodes,dtype=float),elements,groups,bottom_nodes,span,rise
 
 
+def recover_section_moment_knm(
+    start_shear_kn: float, start_moment_knm: float,
+    element_length_m: float, distance_from_start_m: float,
+    profile: dict,
+) -> float:
+    """Recover the exact beam-section moment from FE end forces and applied loads.
+
+    M(x)=-M_start+V_start*x+integrals of distributed transverse loading,
+    transverse point loads and applied point couples. Unlike straight-line
+    interpolation of the two end moments, this captures a wheel acting *inside*
+    an element. Local transverse forces and moments must use the same local
+    axes as the element recovery forces.
+    """
+    L=float(element_length_m)
+    x=float(distance_from_start_m)
+    if not (math.isfinite(x) and math.isfinite(L) and L > 0 and -1e-8 <= x <= L+1e-8):
+        raise ValueError('Section station is outside its finite element')
+    x=max(0.0,min(L,x))
+    p0=float(profile['py_start_kn_per_m'])
+    p1=float(profile['py_end_kn_per_m'])
+    value=(-float(start_moment_knm)+float(start_shear_kn)*x +
+           p0*x*x/2 + (p1-p0)*x**3/(6*L))
+    for load in profile.get('point_loads', []):
+        xp=float(load['fraction'])*L
+        if x + 1e-9 >= xp:
+            value += float(load['py_kn'])*(x-xp)-float(load['mz_knm'])
+    if not math.isfinite(value):
+        raise ValueError('Non-finite recovered section moment')
+    return value
+
+
+
+def _element_section_extrema(
+    start_shear_kn: float, start_moment_knm: float, length_m: float, profile: dict,
+) -> dict:
+    """Find the largest absolute section moment and shear *inside* an element.
+
+    The moment is a piecewise cubic polynomial under linearly distributed
+    transverse loads. Its extrema occur at endpoints, a force discontinuity,
+    the two sides of a concentrated couple, or a zero of its derivative
+    (shear). Solve the shear polynomial on each interval exactly; no station
+    sampling or end-only approximation is used here.
+
+    This is a numerical recovery utility, not a structural-design envelope.
+    """
+    L = float(length_m)
+    if not math.isfinite(L) or L <= 0:
+        raise ValueError('Element length must be positive and finite')
+    v0 = float(start_shear_kn)
+    p0 = float(profile['py_start_kn_per_m'])
+    p1 = float(profile['py_end_kn_per_m'])
+    pts = [(float(p['fraction'])*L, float(p['py_kn']), float(p['mz_knm']))
+           for p in profile.get('point_loads', [])]
+    if any(not (math.isfinite(x) and math.isfinite(py) and math.isfinite(mz))
+           or x < -1e-9 or x > L+1e-9 for x,py,mz in pts):
+        raise ValueError('Invalid concentrated load or section location')
+    edges = sorted(set([0.0, L] + [min(L,max(0.,x)) for x,_,_ in pts]))
+    # Derivative of section moment on each load-free interval:
+    # V(x) = v0 + p0*x + ((p1-p0)/(2L))*x^2 + sum(P_i left of x).
+    a = (p1-p0)/(2*L)
+    candidates = set(edges)
+    for xlo,xhi in zip(edges,edges[1:]):
+        active_load = sum(py for xp,py,_ in pts if xp <= xlo+1e-10)
+        c = v0+active_load
+        if abs(a) < 1e-12:
+            roots = [-c/p0] if abs(p0)>1e-12 else []
+        else:
+            disc = p0*p0-4*a*c
+            if disc < 0:
+                roots=[]
+            else:
+                sqrt_d=math.sqrt(max(disc,0.))
+                roots=[(-p0+sqrt_d)/(2*a),(-p0-sqrt_d)/(2*a)]
+        for r in roots:
+            if xlo <= r <= xhi:
+                candidates.add(r)
+
+    largest_m = (-1., 0.)
+    largest_v = (-1., 0.)
+    for x in candidates:
+        # recover_section_moment_knm includes applied point couples at x,
+        # corresponding to the right-hand limit. A finite couple gives a
+        # jump; test the left-hand limit as well.
+        m_right = recover_section_moment_knm(v0,start_moment_knm,L,x,profile)
+        coincident = [(py,mz) for xp,py,mz in pts if abs(xp-x)<=1e-9]
+        m_left = m_right + sum(mz for _,mz in coincident)
+        for value in (m_right,m_left):
+            if abs(value)>largest_m[0]:largest_m=(abs(value),x)
+
+        base_v=v0+p0*x+a*x*x
+        v_right=base_v+sum(py for xp,py,_ in pts if xp<=x+1e-9)
+        v_left=v_right-sum(py for py,_ in coincident)
+        for value in (v_left,v_right):
+            if abs(value)>largest_v[0]:largest_v=(abs(value),x)
+    return {
+        'max_abs_moment_knm':largest_m[0],
+        'max_abs_moment_station_local_m':largest_m[1],
+        'max_abs_shear_kn':largest_v[0],
+        'max_abs_shear_station_local_m':largest_v[1],
+    }
+
 def run_frame_analysis(
     inputs:CulvertInputs,
     earth:EarthPressureInputs|None=None,
@@ -170,21 +271,34 @@ def run_frame_analysis(
     compnames=("concrete_dead","soil","surcharge","cushion","vehicle","braking")
     nodal_by_component={key:np.zeros(n_dof) for key in compnames}
     element_fe_by_component={key:[np.zeros(6) for _ in elements] for key in compnames}
+    # Recover actual section moments within elements (especially under axle
+    # point loads), instead of interpolating between element-end moments.
+    profile_by_component = {
+        key: [{'py0': 0.0, 'py1': 0.0, 'points': []} for _ in elements]
+        for key in compnames
+    }
     def add_element_load(component:str,e,fl:np.ndarray):
         element_fe_by_component[component][e['id']] += fl
         nodal_by_component[component][e['dofs']] += e['T'].T@fl
     def add_uniform_global(component:str,e,fx:float,fy:float):
         t=e['T'];px,py=(t[:2,:2]@np.array([fx,fy]))
         add_element_load(component,e,_distributed_local(e['length'],lambda r:(px,py)))
+        profile_by_component[component][e['id']]['py0'] += float(py)
+        profile_by_component[component][e['id']]['py1'] += float(py)
     def add_linear_pressure(component:str,e,fx_at_y):
         t=e['T'];L=e['length'];y0=nodes[e['a'],1];y1=nodes[e['b'],1]
         def q(r):
             val=fx_at_y(y0+(y1-y0)*r)
             return t[:2,:2]@np.array([val,0.0])
         add_element_load(component,e,_distributed_local(L,q))
+        profile_by_component[component][e['id']]['py0'] += float(q(0.0)[1])
+        profile_by_component[component][e['id']]['py1'] += float(q(1.0)[1])
     def add_global_point(component:str,e,r:float,fx:float=0,fy:float=0,mz:float=0):
         px,py=e['T'][:2,:2]@np.array([fx,fy])
         add_element_load(component,e,_point_local(e['length'],r,px,py,mz))
+        profile_by_component[component][e['id']]['points'].append({
+            'fraction': float(r), 'py_kn': float(py), 'mz_knm': float(mz),
+        })
     # Allocate preliminary rectangle/haunch volumes to equivalent modelled
     # centreline members. All values are per metre longitudinal culvert width.
     top_w=inputs.concrete_unit_weight_kn_m3*(inputs.clear_width_m+2*inputs.wall_thickness_m)*inputs.top_slab_thickness_m/span
@@ -299,6 +413,19 @@ def run_frame_analysis(
     spring_sum=sum(foundation_reaction.values())
     equilibrium_x=external_x+float(anchor_reaction)
     equilibrium_y=external_y+spring_sum
+    # Global moment equilibrium about the model origin (bottom-left). The
+    # applied vector includes both equivalent nodal loads and actual nodal
+    # couples, so the total must include the rz forces as well.
+    applied_global_moment=sum(
+        float(x*F[3*i+1]-y*F[3*i]+F[3*i+2])
+        for i,(x,y) in enumerate(nodes)
+    )
+    support_global_moment=(
+        sum(float(nodes[dof//3,0]*reaction)
+            for dof,reaction in foundation_reaction.items())
+        -float(nodes[bottom_nodes[0][0],1])*float(anchor_reaction)
+    )
+    equilibrium_moment=applied_global_moment+support_global_moment
     nodal_reactions=[{'node':i,'x_m':float(nodes[i,0]),'vertical_reaction_kn_per_m':
         float(foundation_reaction.get(3*i+1,0))} for i,_ in bottom_nodes]
     # Element fixed-end (equivalent nodal) actions must be subtracted to
@@ -317,10 +444,53 @@ def run_frame_analysis(
                  'moment_knm':float(q[offset_end+2])}
             end_actions.append(row)
             s=summary.setdefault(e['member'],{'member':e['member'],'max_abs_axial_kn':0.0,
-                     'max_abs_shear_kn':0.0,'max_abs_moment_knm':0.0})
+                     'max_abs_shear_kn':0.0,'max_abs_moment_knm':0.0,
+                     'max_abs_moment_station_m':None})
             s['max_abs_axial_kn']=max(s['max_abs_axial_kn'],abs(float(q[offset_end])))
             s['max_abs_shear_kn']=max(s['max_abs_shear_kn'],abs(float(q[offset_end+1])))
+            if abs(float(q[offset_end+2])) > s['max_abs_moment_knm'] or s['max_abs_moment_station_m'] is None:
+                s['max_abs_moment_station_m']=float(xyz[0] if 'slab' in e['member'] else xyz[1])
             s['max_abs_moment_knm']=max(s['max_abs_moment_knm'],abs(float(q[offset_end+2])))
+    member_load_profiles = []
+    for e in elements:
+        index=e['id']
+        points=[]
+        for component in compnames:
+            weight=float(factors[component])
+            for point in profile_by_component[component][index]['points']:
+                points.append({
+                    'fraction': point['fraction'],
+                    'py_kn': point['py_kn']*weight,
+                    'mz_knm': point['mz_knm']*weight,
+                    'component': component,
+                })
+        member_load_profiles.append({
+            'element': index+1, 'member': e['member'],
+            'length_m': float(e['length']),
+            'py_start_kn_per_m': sum(float(factors[c])*profile_by_component[c][index]['py0'] for c in compnames),
+            'py_end_kn_per_m': sum(float(factors[c])*profile_by_component[c][index]['py1'] for c in compnames),
+            'point_loads': points,
+        })
+    # End actions alone do not contain maximum internal beam moments under
+    # distributed or internal wheel loads. Recover section extrema analytically
+    # on every finite element and update the already-built member summary.
+    start_actions={int(row['element']):row for row in end_actions if row['end']=='start'}
+    for e,profile in zip(elements,member_load_profiles):
+        member_summary=summary[e['member']]
+        start_action=start_actions[e['id']+1]
+        peak=_element_section_extrema(
+            start_action['shear_kn'],start_action['moment_knm'],
+            e['length'],profile,
+        )
+        if peak['max_abs_moment_knm'] >= member_summary['max_abs_moment_knm']:
+            member_summary['max_abs_moment_knm']=peak['max_abs_moment_knm']
+            member_summary['max_abs_moment_station_m']=(
+                float(nodes[e['a'],0] if 'slab' in e['member'] else nodes[e['a'],1])
+                +peak['max_abs_moment_station_local_m']
+            )
+        if peak['max_abs_shear_kn'] > member_summary['max_abs_shear_kn']:
+            member_summary['max_abs_shear_kn']=peak['max_abs_shear_kn']
+
     input_components=[]
     for key in compnames:
         fv=nodal_by_component[key]
@@ -342,6 +512,7 @@ def run_frame_analysis(
                      'node_end':e['b']} for e in elements],
         'load_components':input_components,
         'member_end_actions':end_actions,'member_action_summary':list(summary.values()),
+        'member_load_profiles':member_load_profiles,
         'foundation_spring_reactions':nodal_reactions,
         'bottom_left_horizontal_anchor_reaction_kn_per_m':float(anchor_reaction),
         'total_applied_fx_kn_per_m':float(external_x),
@@ -349,6 +520,7 @@ def run_frame_analysis(
         'total_foundation_reaction_kn_per_m':float(spring_sum),
         'equilibrium_residual_fx_kn_per_m':float(equilibrium_x),
         'equilibrium_residual_fy_kn_per_m':float(equilibrium_y),
+        'equilibrium_residual_moment_knm_per_m':float(equilibrium_moment),
         'max_nodal_displacement_mm':max_nodal_displacement_mm,
         'foundation_active_springs':len(active),
         'converged':converged,
@@ -361,6 +533,6 @@ def run_frame_analysis(
             'Wheel point loads use spreadsheet effective-width intensities; full IRC axle/patch cases are not verified',
             'The user-configured factors are NOT certified ULS/SLS design combinations',
             'Haunch shape affects self-weight but not frame member EI; design note haunch area still differs',
-            'No mesh convergence, code-based capacity, crack-width, shear reinforcement, BBS/BOQ or approval',
+            'Mesh sensitivity should be checked separately; no code-approved capacity, crack-width, shear reinforcement, BBS/BOQ or approval',
         ],
     }

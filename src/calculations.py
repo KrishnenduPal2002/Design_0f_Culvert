@@ -26,7 +26,7 @@ from .vehicle_loading import VehicleLoadingInputs, calculate_axle_dispersion, sc
 from .load_combinations import CombinationInputs, calculate_component_factors
 from .structural_analysis import is_original_geometry, build_structural_analysis_snapshot
 from .frame_solver import FrameOptions, run_frame_analysis
-from .uls_design import calculate_uls_design
+from .uls_design import calculate_uls_design, flexural_check, reference_table
 from .sls_design import calculate_sls_design
 from .bbs import calculate_bbs
 from .boq import calculate_boq
@@ -671,6 +671,753 @@ def calculate_design_shear_combinations(rows: list[dict] | None = None) -> dict:
     }
 
 
+
+
+# Flexural R/F detail of RCC Box — source provided-steel schedule.
+# These supplied steel areas are REFERENCE values, not independently derived
+# required steel from ULS, and are not applied to reinforcement drawings/BBS.
+# A blank (None) bar is omitted; a 0-mm bar with a defined spacing is a
+# literal zero bar in the source table and contributes no steel area.
+_FLEXURAL_REINFORCEMENT_SOURCE = [
+    # Component, Section, Position, inner source, outer source,
+    # inner [(dia, spacing),...], outer [(dia, spacing),...]
+    ('Top Slab', 'End Supp.', 'Wall face', 436.33, 907.57,
+     [(10, 180)], [(8, 180), (12, 180), (0, 180)]),
+    ('Top Slab', 'End Supp.', 'Haunch end', 436.33, 907.57,
+     [(10, 180)], [(8, 180), (12, 180), (0, 180)]),
+    ('Top Slab', 'Mid Span', '', 872.66, 279.25,
+     [(10, 180), (10, 180)], [(8, 180)]),
+    ('Bottom Slab', 'End Supp.', 'Wall face', 628.32, 1064.65,
+     [(12, 180)], [(10, 180), (12, 180), (0, 180)]),
+    ('Bottom Slab', 'End Supp.', 'Haunch end', 628.32, 1064.65,
+     [(12, 180)], [(10, 180), (12, 180), (0, 180)]),
+    ('Bottom Slab', 'Mid Span', '', 1064.65, 436.33,
+     [(12, 180), (10, 180)], [(10, 180)]),
+    ('Side Wall', '1st side wall top Supp.', 'Wall face', 436.33, 907.57,
+     [(10, 180)], [(12, 180), (8, 180), (0, 180)]),
+    ('Side Wall', '2nd side wall top Supp.', 'Wall face', 436.33, 907.57,
+     [(10, 180)], [(12, 180), (8, 180), (0, 180)]),
+    ('Side Wall', '1st side wall top Supp.', 'Haunch end', 436.33, 907.57,
+     [(10, 180)], [(12, 180), (8, 180), (0, 180)]),
+    ('Side Wall', '2nd side wall top Supp.', 'Haunch end', 436.33, 907.57,
+     [(10, 180)], [(12, 180), (8, 180), (0, 180)]),
+    ('Side Wall', 'Mid Span', '1st side wall', 436.33, 628.32,
+     [(10, 180)], [(12, 180)]),
+    ('Side Wall', 'Mid Span', '2nd side wall', 436.33, 628.32,
+     [(10, 180)], [(12, 180)]),
+    ('Side Wall', '1st side wall bott. Supp.', 'Wall face', 436.33, 1064.65,
+     [(10, 180)], [(12, 180), (10, 180), (0, 180)]),
+    ('Side Wall', '2nd side wall bott. Supp.', 'Wall face', 436.33, 1064.65,
+     [(10, 180)], [(12, 180), (10, 180), (0, 180)]),
+    ('Side Wall', '1st side wall bott. Supp.', 'Haunch end', 436.33, 1064.65,
+     [(10, 180)], [(12, 180), (10, 180), (0, 180)]),
+    ('Side Wall', '2nd side wall bott. Supp.', 'Haunch end', 436.33, 1064.65,
+     [(10, 180)], [(12, 180), (10, 180), (0, 180)]),
+]
+
+
+def default_flexural_reinforcement_rows() -> list[dict]:
+    """Return 16 rows matching the attached RCC Box flexural R/F schedule."""
+    result = []
+    for member, section, position, ref_inner, ref_outer, inner, outer in _FLEXURAL_REINFORCEMENT_SOURCE:
+        row = {
+            'Component': member,
+            'Section': section,
+            'Position': position,
+            'Reference Inner (mm²/m)': ref_inner,
+            'Reference Outer (mm²/m)': ref_outer,
+        }
+        for face, bars, slots in [('Inner', inner, 2), ('Outer', outer, 3)]:
+            for i in range(1, slots + 1):
+                bar, spacing = bars[i - 1] if i <= len(bars) else (None, None)
+                row[f'{face} Bar-{i} (mm)'] = bar
+                row[f'{face} Spacing-{i} (mm)'] = spacing
+        result.append(row)
+    return result
+
+
+def calculate_flexural_reinforcement(rows: list[dict] | None = None) -> dict:
+    """Recompute provided bar area on inner and outer faces in mm²/m.
+
+    Each nonzero diameter contributes π*d²/4 * (1000/s). Reference columns
+    are the screenshot's two-decimal provided areas, *not* required steel.
+    Differences from reference are informational only; there is no IRC/ULS
+    adequacy check here. Blank bar positions and explicit 0 mm bars add zero.
+    """
+    source = default_flexural_reinforcement_rows() if rows is None else rows
+    if not isinstance(source, (list, tuple)) or not source:
+        raise ValueError('Flexural reinforcement rows must be a non-empty list')
+    calculated_rows = []
+    for index, entry in enumerate(source, 1):
+        if not isinstance(entry, dict):
+            raise ValueError(f'Flexural row {index} must be a mapping')
+        row = dict(entry)
+        for label in ('Component', 'Section', 'Position'):
+            if not isinstance(row.get(label), str):
+                raise ValueError(f'Flexural row {index}: {label} must be text')
+        for face, slot_count in [('Inner', 2), ('Outer', 3)]:
+            ref_key = f'Reference {face} (mm²/m)'
+            try:
+                raw_reference = row[ref_key]
+                if isinstance(raw_reference, bool):
+                    raise ValueError()
+                reference = float(raw_reference)
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError(f'Flexural row {index}: {ref_key} must be numeric') from exc
+            if not math.isfinite(reference) or reference < 0:
+                raise ValueError(f'Flexural row {index}: {ref_key} must be finite and nonnegative')
+            row[ref_key] = reference
+            area = 0.0
+            for slot in range(1, slot_count + 1):
+                dia_key = f'{face} Bar-{slot} (mm)'
+                spacing_key = f'{face} Spacing-{slot} (mm)'
+                raw_dia, raw_spacing = row.get(dia_key), row.get(spacing_key)
+                # Pandas-backed st.data_editor converts blank numeric cells to NaN.
+                def blank(value):
+                    return (value is None or value == '' or
+                            (isinstance(value, (int, float)) and math.isnan(value)))
+                dia = None if blank(raw_dia) else raw_dia
+                spacing = None if blank(raw_spacing) else raw_spacing
+                if dia is not None:
+                    try:
+                        if isinstance(dia, bool):
+                            raise ValueError()
+                        dia = float(dia)
+                    except (TypeError, ValueError) as exc:
+                        raise ValueError(f'Flexural row {index}: {dia_key} must be numeric') from exc
+                    if not math.isfinite(dia) or dia < 0:
+                        raise ValueError(f'Flexural row {index}: {dia_key} must be finite and nonnegative')
+                if spacing is not None:
+                    try:
+                        if isinstance(spacing, bool):
+                            raise ValueError()
+                        spacing = float(spacing)
+                    except (TypeError, ValueError) as exc:
+                        raise ValueError(f'Flexural row {index}: {spacing_key} must be numeric') from exc
+                    if not math.isfinite(spacing) or spacing < 0:
+                        raise ValueError(f'Flexural row {index}: {spacing_key} must be finite and nonnegative')
+                if dia is not None and dia > 0:
+                    if spacing is None or spacing <= 0:
+                        raise ValueError(f'Flexural row {index}: positive {dia_key} needs positive {spacing_key}')
+                    area += math.pi * dia ** 2 / 4.0 * (1000.0 / spacing)
+                row[dia_key], row[spacing_key] = dia, spacing
+            if not math.isfinite(area):
+                raise ValueError(f'Flexural row {index}: calculated area is not finite')
+            row[f'Calculated {face} (mm²/m)'] = area
+            row[f'Difference {face} (mm²/m)'] = area - reference
+            row[f'{face} matches source'] = round(area, 2) == round(reference, 2)
+        calculated_rows.append(row)
+    return {
+        'rows': calculated_rows,
+        'row_count': len(calculated_rows),
+        'all_match_source': all(row['Inner matches source'] and row['Outer matches source']
+                                for row in calculated_rows),
+        'unit': 'mm²/m',
+        'reference': 'Supplied Flexural R/F detail of RCC Box table',
+        'note': 'Comparison with supplied provided-steel values, not a flexural capacity or code adequacy check',
+        'status': 'Reference bar schedule; not automatically connected to ULS design, BBS or reinforcement drawings',
+    }
+
+# Distribution reinforcement — supplied transverse-steel reference schedule.
+# The per-metre required As is an editable reference value, not a live
+# derivation from the ULS main steel. See IRC:112-2020, Cl. 16.6.1.1(3).
+_DISTRIBUTION_REINFORCEMENT_ROWS = [
+    {'Member': '1. Top Slab', 'Surface': 'Top', 'Position': 'Edge', 'Required As (mm²/m)': 141.830, 'Diameter (mm)': 8.0, 'Spacing (mm)': 290.0},
+    {'Member': '1. Top Slab', 'Surface': 'Top', 'Position': 'Mid', 'Required As (mm²/m)': 169.926, 'Diameter (mm)': 8.0, 'Spacing (mm)': 290.0},
+    {'Member': '1. Top Slab', 'Surface': 'Bottom', 'Position': 'Edge', 'Required As (mm²/m)': 141.830, 'Diameter (mm)': 8.0, 'Spacing (mm)': 290.0},
+    {'Member': '1. Top Slab', 'Surface': 'Bottom', 'Position': 'Mid', 'Required As (mm²/m)': 169.926, 'Diameter (mm)': 8.0, 'Spacing (mm)': 290.0},
+    {'Member': '2. Bottom Slab', 'Surface': 'Top', 'Position': 'Edge', 'Required As (mm²/m)': 153.999, 'Diameter (mm)': 8.0, 'Spacing (mm)': 225.0},
+    {'Member': '2. Bottom Slab', 'Surface': 'Top', 'Position': 'Mid', 'Required As (mm²/m)': 210.849, 'Diameter (mm)': 8.0, 'Spacing (mm)': 225.0},
+    {'Member': '2. Bottom Slab', 'Surface': 'Bottom', 'Position': 'Edge', 'Required As (mm²/m)': 153.999, 'Diameter (mm)': 8.0, 'Spacing (mm)': 225.0},
+    {'Member': '2. Bottom Slab', 'Surface': 'Bottom', 'Position': 'Mid', 'Required As (mm²/m)': 210.849, 'Diameter (mm)': 8.0, 'Spacing (mm)': 225.0},
+    {'Member': '3. Side Wall', 'Surface': 'Earth', 'Position': '', 'Required As (mm²/m)': 192.748, 'Diameter (mm)': 8.0, 'Spacing (mm)': 250.0},
+    {'Member': '3. Side Wall', 'Surface': 'Inner', 'Position': '', 'Required As (mm²/m)': 67.964, 'Diameter (mm)': 8.0, 'Spacing (mm)': 300.0},
+]
+
+
+# Reference subsection: Design Constants and effective-depth schedule for the
+# original 1x3x3 single-cell design note. These data are NOT used as structural
+# design input for the separate ULS/SLS/BBS modules or experimental frame solver.
+# They DO feed the linked reference-only ULS Flexural Strength Check below.
+def default_design_constants(inputs: CulvertInputs) -> dict:
+    """Return editable design-note values; source material units are explicit.
+
+    The original Stage 1 modulus inputs have unit ambiguity, so they are NOT
+    silently reinterpreted as GPa here. Separate reference moduli are used.
+    """
+    inputs.validate()
+    return {
+        'fy_mpa': float(str(inputs.steel_grade).replace('Fe', '')),
+        'fck_mpa': float(str(inputs.concrete_grade).replace('M', '')),
+        'es_gpa': 200.0,
+        'ecm_gpa': 32.0,
+        'modular_ratio_reference': 6.19,
+        'fctm_mpa': 2.8,
+        'top_slab_bottom_cover_mm': 50.0,
+        'top_slab_top_cover_mm': 75.0,
+        'bottom_slab_cover_mm': 75.0,
+        'side_wall_outer_cover_mm': 75.0,
+        'side_wall_inner_cover_mm': 50.0,
+        # The source effective-depth table adds 50 mm at the haunch start,
+        # not the full geometric haunch size of 150 mm. Expose explicitly.
+        'haunch_start_extra_depth_m': 0.05 if inputs.haunch_count else 0.0,
+    }
+
+
+def calculate_design_constants(
+    inputs: CulvertInputs, constants: dict | None = None,
+) -> dict:
+    """Recreate the four effective-depth rows of the reference design note.
+
+    d = D - (clear cover + nominal bar radius) / 1000. Nominal 10 mm and
+    12 mm bar offsets are only *reference assumptions* that reproduce the
+    tabulated effective depths, not an independent detailing verification.
+    The reference non-earth side-wall centre uses outer cover + 5 mm.
+    """
+    inputs.validate()
+    source = default_design_constants(inputs)
+    if constants is not None:
+        if not isinstance(constants, dict):
+            raise ValueError('Design constants must be supplied as a mapping')
+        unknown = set(constants) - set(source)
+        if unknown:
+            raise ValueError(f'Unknown design constant(s): {sorted(unknown)}')
+        source.update(constants)
+    values = {}
+    for field, raw in source.items():
+        try:
+            num = float(raw)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError(f'{field} must be numeric') from exc
+        if not math.isfinite(num) or (num < 0 if field.endswith('_cover_mm') or field == 'haunch_start_extra_depth_m' else num <= 0):
+            raise ValueError(f'{field} must be finite and nonnegative (positive for material properties)')
+        values[field] = num
+
+    def effective(total_depth: float, cover_mm: float, diameter_mm: float) -> float:
+        depth = float(total_depth) - (cover_mm + diameter_mm / 2.0) / 1000.0
+        if depth <= 0:
+            raise ValueError('An effective depth is not positive; check thicknesses and covers')
+        return depth
+
+    top = inputs.top_slab_thickness_m
+    bottom = inputs.bottom_slab_thickness_m
+    wall = inputs.wall_thickness_m
+    extra = values['haunch_start_extra_depth_m']
+    top_bottom = values['top_slab_bottom_cover_mm']
+    top_top = values['top_slab_top_cover_mm']
+    bottom_cover = values['bottom_slab_cover_mm']
+    outer = values['side_wall_outer_cover_mm']
+    inner = values['side_wall_inner_cover_mm']
+    # (section, total depth at centre, centre cover, centre nominal bar,
+    #  total depth at haunch end, end cover, end bar, start cover, start bar)
+    specifications = [
+        ('Top Slab', top, top_bottom, 10.0, top, top_top, 12.0, top_top, 12.0),
+        ('Bottom Slab', bottom, bottom_cover, 12.0, bottom, bottom_cover, 12.0, bottom_cover, 12.0),
+        ('Side Wall (Earth face)', wall, outer, 12.0, wall, outer, 12.0, outer, 12.0),
+        ('Side Wall (Non-Earth face)', wall, outer, 10.0, wall, inner, 10.0, inner, 10.0),
+    ]
+    rows = []
+    for section, center_total, center_cover, center_bar, end_total, end_cover, end_bar, start_cover, start_bar in specifications:
+        start_total = end_total + extra
+        rows.append({
+            'Section': section,
+            'Total depth at center (m)': center_total,
+            'Effective depth at center (m)': effective(center_total, center_cover, center_bar),
+            'Total depth at haunch end (m)': end_total,
+            'Effective depth at haunch end (m)': effective(end_total, end_cover, end_bar),
+            'Total depth at haunch start (m)': start_total,
+            'Effective depth at haunch start (m)': effective(start_total, start_cover, start_bar),
+        })
+    return {
+        'values': values,
+        'modular_ratio_from_displayed_moduli': values['es_gpa'] / values['ecm_gpa'],
+        'rows': rows,
+        'row_count': len(rows),
+        'note': ('The reference states m=6.19, whereas Es/Ecm = 200/32 = 6.25 from the '
+                 'rounded moduli. Reference 50 mm haunch-start thickening and the '
+                 'nominal effective-depth offsets require engineering verification.'),
+    }
+
+
+
+# Excel Design!57-76 (valid single-cell flexural rows only) — the 16 visible
+# rows in "Check for strength (ULS : Basic Combination) (Max. Bending Moment)".
+# Link indices are explicit to prevent a non-applicable internal-wall row from
+# being accidentally mapped to this schedule. The side-wall moment link
+# selects the largest |ULS Total| from the two reference sides, as in the
+# provided design-note envelope. Signs are NOT used here to redesign faces.
+# (component, section, face, design-constant row, effective-depth column,
+#  flexural schedule row, flexural face, moment Excel row IDs)
+_ULS_FLEXURAL_LINKS = [
+    ('Top Slab', 'End Supp.', 'Wall face', 0, 'Effective depth at haunch start (m)', 0, 'Outer', (215,)),
+    ('Top Slab', 'End Supp.', 'Haunch end', 0, 'Effective depth at haunch end (m)', 1, 'Outer', (216,)),
+    ('Top Slab', 'Mid Span', '', 0, 'Effective depth at center (m)', 2, 'Inner', (217,)),
+    ('Bottom Slab', 'End Supp.', 'Wall face', 1, 'Effective depth at haunch start (m)', 3, 'Outer', (220,)),
+    ('Bottom Slab', 'End Supp.', 'Haunch end', 1, 'Effective depth at haunch end (m)', 4, 'Outer', (221,)),
+    ('Bottom Slab', 'Mid Span', '', 1, 'Effective depth at center (m)', 5, 'Inner', (222,)),
+    ('Side Wall', 'Side wall top supp.', 'Outer face', 2, 'Effective depth at haunch start (m)', 6, 'Outer', (225, 226)),
+    ('Side Wall', 'Side wall top supp.', 'Inner face', 3, 'Effective depth at haunch start (m)', 7, 'Inner', (227, 228)),
+    ('Side Wall', 'Side wall top supp. haunch end', 'Outer face', 2, 'Effective depth at haunch end (m)', 8, 'Outer', (229, 230)),
+    ('Side Wall', 'Side wall top supp. haunch end', 'Inner face', 3, 'Effective depth at haunch end (m)', 9, 'Inner', (231, 232)),
+    ('Side Wall', 'Mid Span', 'Outer face', 2, 'Effective depth at center (m)', 10, 'Outer', (233, 234)),
+    ('Side Wall', 'Mid Span', 'Inner face', 3, 'Effective depth at center (m)', 11, 'Inner', (235, 236)),
+    ('Side Wall', 'Side wall bottom supp.', 'Outer face', 2, 'Effective depth at haunch start (m)', 12, 'Outer', (237, 238)),
+    ('Side Wall', 'Side wall bottom supp.', 'Inner face', 3, 'Effective depth at haunch start (m)', 13, 'Inner', (239, 240)),
+    ('Side Wall', 'Side wall bottom supp. haunch end', 'Outer face', 2, 'Effective depth at haunch end (m)', 14, 'Outer', (241, 242)),
+    ('Side Wall', 'Side wall bottom supp. haunch end', 'Inner face', 3, 'Effective depth at haunch end (m)', 15, 'Inner', (243, 244)),
+]
+
+
+
+
+def calculate_live_frame_flexural_demands(inputs: CulvertInputs, frame_results: dict) -> list[dict]:
+    """Recover face-specific design moments from one *experimental* FEM solution.
+
+    Uses exact section recovery from element-end actions, including actual
+    interior axle point loads and distributed loads. Positive local bending
+    gives tension on the -local-y face; the section schedule maps that local
+    orientation to RCC inner/outer faces. This is a physically reasoned mapping
+    for this model's orientation, but is NOT independently verified against
+    source STAAD axes or IRC section sign conventions.
+
+    Each returned demand is the positive tensile-side *magnitude* at the
+    specified section; an opposite-sign moment does not use the opposite-face
+    steel. The left/right wall envelope is taken over both physical walls.
+    """
+    from .earth_pressure import TF_TO_KN
+    from .frame_solver import recover_section_moment_knm
+
+    if not inputs.supports_single_cell_model:
+        raise ValueError('Live FEM flexure is only supported for a single cell')
+    if not isinstance(frame_results, dict) or not frame_results.get('converged'):
+        raise ValueError('A converged live FEM result is required')
+    span = inputs.clear_width_m + inputs.wall_thickness_m
+    rise = inputs.clear_height_m + (inputs.top_slab_thickness_m + inputs.bottom_slab_thickness_m)/2
+    for key, expected in (('frame_width_m',span),('frame_height_m',rise),('strip_width_m',1.0)):
+        actual=frame_results.get(key)
+        if not isinstance(actual,(int,float)) or not math.isfinite(actual) or not math.isclose(actual,expected,rel_tol=0,abs_tol=1e-6):
+            raise ValueError(f'Live FEM {key} does not match current geometry; rerun the analysis')
+
+    actions=frame_results.get('member_end_actions')
+    profiles=frame_results.get('member_load_profiles')
+    if not isinstance(actions,list) or not actions:
+        raise ValueError('Live FEM member-end moment results are missing')
+    if not isinstance(profiles,list) or not profiles:
+        raise ValueError('Live FEM distributed/point-load profiles are missing; update src/frame_solver.py')
+    by_profile = {(r['member'],r['element']):r for r in profiles}
+    groups = {}
+    for row in actions:
+        member=row.get('member');end=row.get('end')
+        if member not in ('Top slab','Bottom slab','Left wall','Right wall') or end not in ('start','end'):
+            raise ValueError('Unexpected FEM member or element-end label')
+        for key in ('moment_knm','shear_kn','x_m','y_m'):
+            if not isinstance(row.get(key),(float,int)) or not math.isfinite(row[key]):
+                raise ValueError(f'Invalid FEM {key}')
+        groups.setdefault((member,row['element']),{})[end]=row
+    segments={key:[] for key in ('Top slab','Bottom slab','Left wall','Right wall')}
+    for (member,eid),ends in groups.items():
+        if set(ends) != {'start','end'}:
+            raise ValueError(f'Incomplete FEM end actions for element {eid}')
+        a,b=ends['start'],ends['end']
+        axis='x_m' if 'slab' in member else 'y_m'
+        x0,x1=a[axis],b[axis]
+        if x1 <= x0:
+            raise ValueError('FEM member element axes must increase along x or y')
+        if (member,eid) not in by_profile:
+            raise ValueError('A solved element is missing its load profile')
+        profile=by_profile[(member,eid)]
+        L=x1-x0
+        if not math.isclose(profile['length_m'],L,abs_tol=1e-6,rel_tol=0):
+            raise ValueError('FEM load profile does not match member segment length')
+        m_end=recover_section_moment_knm(a['shear_kn'],a['moment_knm'],L,L,profile)
+        if not math.isclose(m_end,b['moment_knm'],abs_tol=1e-5,rel_tol=1e-6):
+            raise ValueError(f'Inconsistent FEM section recovery at element {eid}')
+        segments[member].append((x0,x1,a,profile))
+
+    def signed_section_samples(member: str, station: float) -> list[float]:
+        result=[]
+        for x0,x1,a,profile in segments[member]:
+            if x0-1e-8 <= station <= x1+1e-8:
+                x=max(0.0,min(x1-x0,station-x0))
+                # Section recovery accounts for the axle and pressure profile,
+                # rather than linearly interpolating end moments.
+                result.append(recover_section_moment_knm(
+                    a['shear_kn'],a['moment_knm'],x1-x0,x,profile))
+        if not result:
+            raise ValueError(f'No FEM element covers {member} at {station:.3f} m')
+        return result
+
+    slab_haunch=min(span/2,inputs.wall_thickness_m/2+inputs.haunch_width_m)
+    top_haunch=min(rise/2,inputs.top_slab_thickness_m/2+inputs.haunch_height_m)
+    bottom_haunch=min(rise/2,inputs.bottom_slab_thickness_m/2+inputs.haunch_height_m)
+    targets=[
+        [('Top slab',0.0),('Top slab',span)],
+        [('Top slab',slab_haunch),('Top slab',span-slab_haunch)],
+        [('Top slab',span/2)],
+        [('Bottom slab',0.0),('Bottom slab',span)],
+        [('Bottom slab',slab_haunch),('Bottom slab',span-slab_haunch)],
+        [('Bottom slab',span/2)],
+    ]
+    for y in (rise,rise-top_haunch,rise/2,0.0,bottom_haunch):
+        pair=[('Left wall',y),('Right wall',y)]
+        targets.extend((pair,pair))
+    if len(targets)!=len(_ULS_FLEXURAL_LINKS):
+        raise AssertionError('Live FEM station schedule must have 16 rows')
+
+    results=[]
+    for ix,places in enumerate(targets):
+        component,section,face,*_= _ULS_FLEXURAL_LINKS[ix]
+        candidates=[]
+        for member,station in places:
+            # Sagging/positive in model axes: tension on -local-y side.
+            # Slabs: top = outer / bottom = inner for the upper slab;
+            # bottom=outer / top=inner for the lower slab.
+            if member=='Top slab':
+                tension_sign = -1 if face in ('Wall face','Haunch end') else +1
+            elif member=='Bottom slab':
+                tension_sign = +1 if face in ('Wall face','Haunch end') else -1
+            elif member=='Left wall':
+                tension_sign = -1 if face=='Outer face' else +1
+            else:
+                tension_sign = +1 if face=='Outer face' else -1
+            for signed_knm in signed_section_samples(member,station):
+                tensile_m=max(0.0,tension_sign*signed_knm)
+                candidates.append((tensile_m,member,station,signed_knm))
+        if not candidates:
+            raise ValueError(f'No FEM candidates for ULS row {ix+1}')
+        governing=max(candidates,key=lambda r:r[0])
+        tensile,member,station,signed=governing
+        results.append({
+            'row':ix+1,'moment_tf_m_per_m':tensile/TF_TO_KN,
+            'signed_moment_tf_m_per_m':signed/TF_TO_KN if tensile>0 else 0.0,
+            'mapped_member':member,'station_m':station,
+            'face_resolved':True,'reference_face':face,
+        })
+    return results
+
+
+def calculate_moving_vehicle_uls_envelope(
+    inputs: CulvertInputs,
+    *,
+    earth: EarthPressureInputs | None = None,
+    braking: BrakingInputs | None = None,
+    vehicle: VehicleLoadingInputs | None = None,
+    combo: CombinationInputs | None = None,
+    options: FrameOptions | None = None,
+    step_m: float = 0.15,
+    max_scenarios: int = 240,
+) -> dict:
+    """Scan a vehicle train over the span and envelop face-resolved FEM moments.
+
+    Axle positions run from the first axle at the left support through the last
+    axle leaving the right support. Candidate locations include all mesh/haunch
+    and midspan section crossing positions plus a bounded uniform scan. These
+    give a numerically sampled envelope, NOT guaranteed global maxima or an
+    IRC-approved moving load / ULS combination. An engineer must verify traffic
+    placement, factors, foundation, haunch stiffness, mesh and tension faces.
+    """
+    from dataclasses import replace
+    inputs.validate()
+    if not inputs.supports_single_cell_model:
+        raise ValueError('Moving-load FEM requires a single-cell culvert')
+    earth=earth or EarthPressureInputs(earth_cushion_m=inputs.earth_cushion_m)
+    braking=braking or BrakingInputs(length_m=inputs.length_m)
+    vehicle=vehicle or VehicleLoadingInputs()
+    combo=combo or CombinationInputs()
+    options=options or FrameOptions()
+    vehicle.validate();combo.validate();options.validate()
+    if vehicle.loading_type not in ('70rw','40t','custom'):
+        raise ValueError('Automatic moving FEM loading is not supported for this vehicle preset')
+    if not math.isfinite(step_m) or not 0.025<=step_m<=1.0:
+        raise ValueError('Scan step must be between 0.025 and 1 m')
+    if not isinstance(max_scenarios,int) or max_scenarios<8:
+        raise ValueError('max_scenarios must be at least 8')
+    span=inputs.clear_width_m+inputs.wall_thickness_m
+    offsets=[0.0]
+    for dist in vehicle.axle_spacings_m:
+        offsets.append(offsets[-1]+dist)
+    full_travel=span+offsets[-1]
+    if combo.vehicle_factor==0:
+        positions=[vehicle.lead_axle_position_m]
+    else:
+        # Ensure all axles cross both critical frame stations and sampled
+        # positions in between. Include both span ends.
+        haunch=min(span/2,inputs.wall_thickness_m/2+inputs.haunch_width_m)
+        stations=(0.0,haunch,span/2,span-haunch,span)
+        positions=sorted({round(i*full_travel/max(1,math.ceil(full_travel/step_m)),8)
+                          for i in range(max(1,math.ceil(full_travel/step_m))+1)} |
+                         {round(o+x,8) for o in offsets for x in stations} |
+                         {round(vehicle.lead_axle_position_m,8)})
+        if len(positions)>max_scenarios:
+            # Keep the section crossing points and a uniformly spaced subset.
+            # Explicitly report the thinning so users know it is not exact.
+            anchors={round(o+x,8) for o in offsets for x in stations}
+            anchors.update({0.0,round(full_travel,8),round(vehicle.lead_axle_position_m,8)})
+            anchors=sorted(anchors)
+            if len(anchors)>max_scenarios:
+                raise ValueError('Too many axle stations for the FEM envelope cap; increase max_scenarios')
+            other=[x for x in positions if x not in set(anchors)]
+            remaining=max_scenarios-len(anchors)
+            if remaining:
+                selected=[other[min(len(other)-1, int((j+.5)*len(other)/remaining))]
+                          for j in range(remaining)]
+                positions=sorted(set(anchors+selected))
+            else:
+                positions=anchors
+    best=[None]*len(_ULS_FLEXURAL_LINKS)
+    for lead in positions:
+        solved=run_frame_analysis(inputs,earth,braking,
+                                  replace(vehicle,lead_axle_position_m=lead),combo,options)
+        current=calculate_live_frame_flexural_demands(inputs,solved)
+        for i,r in enumerate(current):
+            if best[i] is None or r['moment_tf_m_per_m']>best[i]['moment_tf_m_per_m']+1e-11:
+                best[i]={**r,'governing_lead_axle_position_m':lead}
+    assert all(r is not None for r in best)
+    return {
+        'rows':best,
+        'scenario_count':len(positions),
+        'first_lead_position_m':positions[0],
+        'last_lead_position_m':positions[-1],
+        'vehicle_loading_type':vehicle.loading_type,
+        'search_step_m':step_m,
+        'load_factors':{k:getattr(combo,k) for k in (
+            'concrete_dead_factor','soil_factor','surcharge_factor',
+            'cushion_factor','vehicle_factor','braking_factor')},
+        'assumptions':('Sampled moving-load face-specific envelope, experimental ',
+                       '2D frame; not independently validated against STAAD or IRC ULS.'),
+    }
+
+
+def calculate_uls_flexural_strength(
+    inputs: CulvertInputs,
+    *,
+    constants: dict | None = None,
+    moment_rows: list[dict] | None = None,
+    reinforcement_rows: list[dict] | None = None,
+    frame_results: dict | None = None,
+    live_demands: list[dict] | None = None,
+) -> dict:
+    """Linked 16-row ULS flexural check: Excel or live experimental FEM demands.
+
+    Sources in the same Streamlit run:
+      - Design Constants: fy, fck, Es, fctm and effective-depth positions.
+      - Design Moments: absolute governing ULS moment for each linked location.
+      - Flexural R/F: actual provided inner/outer bar area per metre.
+
+    Uses src.uls_design.flexural_check for section capacity arithmetic.
+    When frame_results is given, moments are sampled from the active,
+    already-solved experimental 2D frame at approximate reference stations;
+    the live mode does not use Excel demands. The model is NOT a validated
+    ULS envelope and face assignments are not independently checked.
+    Does not alter Stage 5 ULS, SLS, BBS, BOQ or detailing outputs.
+    """
+    dc = calculate_design_constants(inputs, constants)
+    steel = calculate_flexural_reinforcement(reinforcement_rows)
+    materials = dc['values']
+    if frame_results is not None and live_demands is not None:
+        raise ValueError('Provide either one current FEM case or a moving FEM envelope, not both')
+    live_moments = (live_demands if live_demands is not None else
+                    calculate_live_frame_flexural_demands(inputs, frame_results)
+                    if frame_results is not None else None)
+    if live_moments is not None:
+        if len(live_moments) != len(_ULS_FLEXURAL_LINKS):
+            raise ValueError('FEM envelope must contain exactly 16 section demands')
+        for index, item in enumerate(live_moments):
+            demand=item.get('moment_tf_m_per_m') if isinstance(item,dict) else None
+            if not isinstance(demand,(float,int)) or not math.isfinite(demand) or demand < 0:
+                raise ValueError(f'Invalid FEM envelope moment at row {index+1}')
+    # Live analysis must not depend on or silently use the historical Excel table.
+    if live_moments is None:
+        moments = calculate_design_moment_combinations(moment_rows)
+        by_excel = {r['Excel row']: r for r in moments['rows']}
+        if len(by_excel) != len(moments['rows']):
+            raise ValueError('Duplicated Excel row IDs in the Design Moment table')
+    else:
+        by_excel = {}
+    if len(steel['rows']) != 16:
+        raise ValueError('Flexural R/F reference schedule must contain 16 section rows')
+    source_refs = reference_table()['flexure']
+    if len(source_refs) != len(_ULS_FLEXURAL_LINKS):
+        raise ValueError('ULS flexural reference schedule no longer matches the 16-row mapping')
+
+    result_rows = []
+    for ix, link in enumerate(_ULS_FLEXURAL_LINKS):
+        component, section, face, dc_index, depth_field, steel_index, steel_face, excel_ids = link
+        live = live_moments[ix] if live_moments is not None else None
+        if live is None:
+            try:
+                candidates = [by_excel[ident] for ident in excel_ids]
+            except KeyError as exc:
+                raise ValueError(f'Missing linked Design Moment Excel row {exc.args[0]}') from exc
+            governing = max(candidates, key=lambda x: abs(x['ULS Factor load']))
+            moment = abs(governing['ULS Factor load'])
+        else:
+            governing = None
+            moment = live['moment_tf_m_per_m']
+        bar_row = steel['rows'][steel_index]
+        steel_area = bar_row[f'Calculated {steel_face} (mm²/m)']
+        if live_moments is None:
+            # Reference mode remains an EXACT reproduction of the source depth
+            # schedule, including its 170mm inner-wall centre value.
+            depth_mm=dc['rows'][dc_index][depth_field]*1000.0
+            depth_basis='Excel design-constant schedule'
+        else:
+            # Live mode uses the currently edited reinforcement bar diameter
+            # and correct face clear cover. Source Design Constants gives 170mm
+            # for the inner-wall midspan despite listing a 50mm inner cover;
+            # correct live geometrical depth is 250-50-10/2=195mm.
+            # Largest occupied bar is a conservative single-layer nominal size;
+            # multilayer bar centroid/cover must be verified by the designer.
+            diameters=[bar_row.get(f'{steel_face} Bar-{k} (mm)')
+                       for k in range(1,4 if steel_face=='Outer' else 3)]
+            positive_diameters=[float(d) for d in diameters if d is not None and float(d)>0]
+            if not positive_diameters:
+                raise ValueError(f'ULS row {ix+1}: no reinforcement bar exists on the {steel_face.lower()} face')
+            diameter=max(positive_diameters)
+            if component=='Top Slab':
+                cover=materials['top_slab_top_cover_mm'] if steel_face=='Outer' else materials['top_slab_bottom_cover_mm']
+            elif component=='Bottom Slab':
+                cover=materials['bottom_slab_cover_mm']
+            else:
+                cover=materials['side_wall_outer_cover_mm'] if steel_face=='Outer' else materials['side_wall_inner_cover_mm']
+            if 'haunch start' in depth_field:
+                total_depth_field='Total depth at haunch start (m)'
+            elif 'haunch end' in depth_field:
+                total_depth_field='Total depth at haunch end (m)'
+            else:
+                total_depth_field='Total depth at center (m)'
+            total_depth_mm=dc['rows'][dc_index][total_depth_field]*1000.0
+            depth_mm=total_depth_mm-cover-diameter/2.0
+            if depth_mm<=0:
+                raise ValueError(f'ULS row {ix+1}: cover and bar diameter leave no effective depth')
+            depth_basis='Live cover and current face bar (largest diameter as nominal outer layer)'
+        if bar_row['Component'] != component:
+            raise ValueError(f'Flexural R/F row {steel_index + 1} does not match {component}')
+        computed = flexural_check(
+            moment_tf_m_per_m=moment,
+            effective_depth_mm=depth_mm,
+            provided_as_mm2_per_m=steel_area,
+            fck_mpa=materials['fck_mpa'],
+            fy_mpa=materials['fy_mpa'],
+            fctm_mpa=materials['fctm_mpa'],
+            steel_modulus_gpa=materials['es_gpa'],
+            # Keep rounded workbook arithmetic in Excel-reference mode,
+            # but use the exact metric tonne-force conversion for the
+            # physical kN-based live frame solution.
+            tonne_force_to_kn=(9.80665 if live_moments is not None else 10.0),
+        )
+        if computed['as_required_mm2_per_m'] is None:
+            steel_check = 'NOT OK'
+        else:
+            steel_check = ('OK' if computed['reinforcement_check'] == 'OK' and
+                           computed['reinforcement_type'] == 'Under-reinforced'
+                           else 'NOT OK')
+        row = {
+            'Component': component,
+            'Section': section,
+            'Face': face,
+            'Xu max/d': computed['xu_max_over_d'],
+            'Xu max (m)': computed['xu_max_mm'] / 1000.0,
+            'R lim (MPa)': computed['r_lim_mpa'],
+            'd min (mm)': computed['d_min_mm'],
+            'd provided (mm)': computed['effective_depth_mm'],
+            'Effective depth basis':depth_basis,
+            'Depth Check': computed['depth_check'],
+            'Design Moment (t-m)': moment,
+            'Ast Reqd. (mm²/m)': computed['as_required_mm2_per_m'],
+            'Ast Lim (mm²/m)': computed['as_limit_mm2_per_m'],
+            'Ast min (mm²/m)': computed['as_min_mm2_per_m'],
+            'Ast provided (mm²/m)': steel_area,
+            'Steel Check': steel_check,
+            'Source Design Row': source_refs[ix]['row'],
+            'Governing Moment Excel Row': (governing['Excel row'] if governing else None),
+            'Governing Signed MZ (t-m/m)': (live['signed_moment_tf_m_per_m'] if live else governing['ULS Factor load']),
+            'Demand Source': ('Live experimental FEM' if live else 'Excel reference/edited'),
+            'Live FEM Member': (live['mapped_member'] if live else None),
+            'Live FEM Station (m)': (live['station_m'] if live else None),
+            'Governing axle position (m)': (live.get('governing_lead_axle_position_m') if live else None),
+            'Source Design Moment (t-m)': source_refs[ix]['moment_tf_m_per_m'],
+            'Source d min (mm)': source_refs[ix]['excel_d_min_mm'],
+            'Source As required (mm²/m)': source_refs[ix]['excel_as_required_mm2_per_m'],
+        }
+        result_rows.append(row)
+    return {
+        'rows': result_rows,
+        'row_count': len(result_rows),
+        'depth_ok_count': sum(row['Depth Check'] == 'OK' for row in result_rows),
+        'steel_ok_count': sum(row['Steel Check'] == 'OK' for row in result_rows),
+        'linked_subsections': ('Design Constants', 'Design moment due to different load combination',
+                               'Flexural R/F detail of RCC Box'),
+        'source_reference': ('Experimental in-app frame solver' if live_moments is not None
+                             else 'Original Excel Design worksheet, ULS Basic Combination flexural rows'),
+        'scope_note': (
+            'Experimental FEM moments update with active geometry, vehicle and factors. '
+            'Moving-load scans (where used) evaluate multiple axle positions; local '
+            'moment signs distinguish inner and outer tension faces. This mapping, '
+            'foundations, haunch stiffness, vehicle model and factor set require '
+            'engineer verification. Separate Stage 5 checks remain unchanged.'
+            if live_moments is not None else
+            'Workbook-reference moments only; editing moment signs does not reassign '
+            'inner/outer tension faces. Separate Stage 5 checks are unchanged.'
+        ),
+    }
+
+def default_distribution_reinforcement_rows() -> list[dict]:
+    """Return ten editable transverse-steel rows from the supplied screenshot."""
+    return [dict(row) for row in _DISTRIBUTION_REINFORCEMENT_ROWS]
+
+
+def calculate_distribution_reinforcement(rows: list[dict] | None = None) -> dict:
+    """Calculate bar area per metre and compare to reference required steel.
+
+    A_s,provided = (pi * diameter_mm**2 / 4) * (1000 / spacing_mm).
+    This is an area check against entered As, not a full IRC 112 check or
+    a live computation of As_required = 20% of main reinforcement.
+    """
+    source = default_distribution_reinforcement_rows() if rows is None else rows
+    if not isinstance(source, (list, tuple)) or not source:
+        raise ValueError('Distribution reinforcement rows must be a non-empty list')
+    output = []
+    for i, item in enumerate(source, 1):
+        if not isinstance(item, dict):
+            raise ValueError(f'Distribution reinforcement row {i} must be a mapping')
+        row = dict(item)
+        for name in ('Member', 'Surface', 'Position'):
+            if name not in row or not isinstance(row[name], str):
+                raise ValueError(f'Row {i}: {name} must be text')
+        for name in ('Required As (mm²/m)', 'Diameter (mm)', 'Spacing (mm)'):
+            try:
+                raw = row[name]
+                if isinstance(raw, bool):
+                    raise ValueError()
+                number = float(raw)
+            except (KeyError, ValueError, TypeError) as exc:
+                raise ValueError(f'Row {i}: {name} must be numeric') from exc
+            if not math.isfinite(number):
+                raise ValueError(f'Row {i}: {name} must be finite')
+            if number < 0 or (name != 'Required As (mm²/m)' and number <= 0):
+                raise ValueError(f'Row {i}: {name} must be ' +
+                                 ('non-negative' if name == 'Required As (mm²/m)' else 'positive'))
+            row[name] = number
+        dia = row['Diameter (mm)']
+        spacing = row['Spacing (mm)']
+        provided = math.pi * dia**2 / 4.0 * (1000.0 / spacing)
+        if not math.isfinite(provided):
+            raise ValueError(f'Row {i}: calculated steel is not finite')
+        row['Provided As (mm²/m)'] = provided
+        row['Check'] = 'OK' if provided + 1e-9 >= row['Required As (mm²/m)'] else 'NOT OK'
+        output.append(row)
+    return {
+        'rows': output,
+        'row_count': len(output),
+        'pass_count': sum(row['Check'] == 'OK' for row in output),
+        'unit': 'mm²/m',
+        'reference': 'Supplied Distribution Reinforcement — Transverse steel table',
+        'code_reference': 'IRC:112-2020, Clause 16.6.1.1(3)',
+        'note': 'Secondary transverse steel in one-way slabs: at least 20% of main reinforcement',
+        'status': 'Provided-area comparison only; not full IRC or live ULS verification',
+    }
+
 def calculate_preview(
     inputs: CulvertInputs,
     earth_pressure_inputs: EarthPressureInputs | None = None,
@@ -751,6 +1498,8 @@ def calculate_preview(
         "braking_force_reference": calculate_braking_force_table(inputs, braking),
         "design_moment_combinations": calculate_design_moment_combinations(),
         "design_shear_combinations": calculate_design_shear_combinations(),
+        "flexural_reinforcement": calculate_flexural_reinforcement(),
+        "distribution_reinforcement": calculate_distribution_reinforcement(),
         "vehicle_axle_loading": vehicle,
         "vehicle_position_screening": scan_lead_axle_positions(inputs, vehicle_inputs or VehicleLoadingInputs()),
         "structural_design_status": "NOT IMPLEMENTED OR VERIFIED",
