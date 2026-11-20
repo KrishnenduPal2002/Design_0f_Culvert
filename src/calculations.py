@@ -26,7 +26,7 @@ from .vehicle_loading import VehicleLoadingInputs, calculate_axle_dispersion, sc
 from .load_combinations import CombinationInputs, calculate_component_factors
 from .structural_analysis import is_original_geometry, build_structural_analysis_snapshot
 from .frame_solver import FrameOptions, run_frame_analysis
-from .uls_design import calculate_uls_design, flexural_check, reference_table
+from .uls_design import calculate_uls_design, flexural_check, reference_table, shear_without_stirrups, stirrup_check
 from .sls_design import calculate_sls_design
 from .bbs import calculate_bbs
 from .boq import calculate_boq
@@ -1165,16 +1165,23 @@ def calculate_moving_vehicle_uls_envelope(
             else:
                 positions=anchors
     best=[None]*len(_ULS_FLEXURAL_LINKS)
+    best_shear=[None]*len(_ULS_FLEXURAL_LINKS)
+    from .autoflow import calculate_live_shear_sections
     for lead in positions:
         solved=run_frame_analysis(inputs,earth,braking,
                                   replace(vehicle,lead_axle_position_m=lead),combo,options)
         current=calculate_live_frame_flexural_demands(inputs,solved)
+        shears=calculate_live_shear_sections(inputs,solved)
+        for i,r in enumerate(shears):
+            if best_shear[i] is None or r['Total']>best_shear[i]['Total']+1e-11:
+                best_shear[i]={**r,'governing_lead_axle_position_m':lead}
         for i,r in enumerate(current):
             if best[i] is None or r['moment_tf_m_per_m']>best[i]['moment_tf_m_per_m']+1e-11:
                 best[i]={**r,'governing_lead_axle_position_m':lead}
     assert all(r is not None for r in best)
     return {
         'rows':best,
+        'shear_rows':best_shear,
         'scenario_count':len(positions),
         'first_lead_position_m':positions[0],
         'last_lead_position_m':positions[-1],
@@ -1262,35 +1269,17 @@ def calculate_uls_flexural_strength(
             depth_mm=dc['rows'][dc_index][depth_field]*1000.0
             depth_basis='Excel design-constant schedule'
         else:
-            # Live mode uses the currently edited reinforcement bar diameter
-            # and correct face clear cover. Source Design Constants gives 170mm
-            # for the inner-wall midspan despite listing a 50mm inner cover;
-            # correct live geometrical depth is 250-50-10/2=195mm.
-            # Largest occupied bar is a conservative single-layer nominal size;
-            # multilayer bar centroid/cover must be verified by the designer.
+            # One consistent geometric section-depth rule is shared by the
+            # live ULS flexural, ULS shear and SLS checks. No reference offsets.
+            from .autoflow import section_geometry_and_face
             diameters=[bar_row.get(f'{steel_face} Bar-{k} (mm)')
                        for k in range(1,4 if steel_face=='Outer' else 3)]
             positive_diameters=[float(d) for d in diameters if d is not None and float(d)>0]
             if not positive_diameters:
-                raise ValueError(f'ULS row {ix+1}: no reinforcement bar exists on the {steel_face.lower()} face')
+                raise ValueError(f'ULS row {ix+1}: no bar on the {steel_face.lower()} face')
             diameter=max(positive_diameters)
-            if component=='Top Slab':
-                cover=materials['top_slab_top_cover_mm'] if steel_face=='Outer' else materials['top_slab_bottom_cover_mm']
-            elif component=='Bottom Slab':
-                cover=materials['bottom_slab_cover_mm']
-            else:
-                cover=materials['side_wall_outer_cover_mm'] if steel_face=='Outer' else materials['side_wall_inner_cover_mm']
-            if 'haunch start' in depth_field:
-                total_depth_field='Total depth at haunch start (m)'
-            elif 'haunch end' in depth_field:
-                total_depth_field='Total depth at haunch end (m)'
-            else:
-                total_depth_field='Total depth at center (m)'
-            total_depth_mm=dc['rows'][dc_index][total_depth_field]*1000.0
-            depth_mm=total_depth_mm-cover-diameter/2.0
-            if depth_mm<=0:
-                raise ValueError(f'ULS row {ix+1}: cover and bar diameter leave no effective depth')
-            depth_basis='Live cover and current face bar (largest diameter as nominal outer layer)'
+            _,depth_mm,_=section_geometry_and_face(inputs,ix,steel_face,diameter,materials)
+            depth_basis='Current thickness, geometry, clear cover and provided first-layer bar'
         if bar_row['Component'] != component:
             raise ValueError(f'Flexural R/F row {steel_index + 1} does not match {component}')
         computed = flexural_check(
@@ -1360,6 +1349,229 @@ def calculate_uls_flexural_strength(
             'Workbook-reference moments only; editing moment signs does not reassign '
             'inner/outer tension faces. Separate Stage 5 checks are unchanged.'
         ),
+    }
+
+# ULS shear-strength schedule directly following Distribution Reinforcement.
+# The 16 single-cell sections reproduce all applicable rows in the reference
+# shear-without-shear-reinforcement table. No invalid internal-wall rows are
+# inserted. Design shear comes from the preceding *editable* ULS shear table,
+# not from the experimental moving FEM moment envelope.
+# (design-constant index, effective depth field, steel face)
+_SHEAR_STRENGTH_LINKS = (
+    (0, 'Effective depth at haunch start (m)', 'Outer'),  # Top slab / end support wall face
+    (0, 'Effective depth at haunch end (m)', 'Outer'),    # Top slab / end support haunch end
+    (0, 'Effective depth at center (m)', 'Inner'),       # Top slab / midspan
+    (1, 'Effective depth at haunch start (m)', 'Outer'), # Bottom slab / end support wall face
+    (1, 'Effective depth at haunch end (m)', 'Outer'),   # Bottom slab / end support haunch end
+    (1, 'Effective depth at center (m)', 'Inner'),      # Bottom slab / midspan
+    (2, 'Effective depth at haunch start (m)', 'Outer'), # Side 1 / top wall face
+    (2, 'Effective depth at haunch start (m)', 'Outer'), # Side 2 / top wall face
+    (2, 'Effective depth at haunch end (m)', 'Outer'),   # Side 1 / top haunch end
+    (2, 'Effective depth at haunch end (m)', 'Outer'),   # Side 2 / top haunch end
+    (2, 'Effective depth at center (m)', 'Outer'),      # Side 1 / midspan
+    (2, 'Effective depth at center (m)', 'Outer'),      # Side 2 / midspan
+    (2, 'Effective depth at haunch start (m)', 'Outer'), # Side 1 / bottom wall face
+    (2, 'Effective depth at haunch start (m)', 'Outer'), # Side 2 / bottom wall face
+    (2, 'Effective depth at haunch end (m)', 'Outer'),   # Side 1 / bottom haunch end
+    (2, 'Effective depth at haunch end (m)', 'Outer'),   # Side 2 / bottom haunch end
+)
+
+_SHEAR_STRENGTH_COLUMNS = (
+    'Component', 'Section', 'Face', 'Reinforcement (mm²/m)',
+    'Effective Depth Provided (mm)', 'ρl = As/(bw d)', 'k',
+    'Vmin (t/m)', 'VRdc (t/m)', 'VRd w/o shear reinf. (t/m)',
+    'Design Shear (t/m)', 'Shear Reinf. Requirement',
+)
+
+
+def calculate_uls_shear_strength_table(
+    inputs: CulvertInputs,
+    *,
+    shear_rows: list[dict] | None = None,
+    reinforcement_rows: list[dict] | None = None,
+    constants: dict | None = None,
+) -> dict:
+    """Compute all 16 rows and 12 fields of the shear reference schedule.
+
+    Assumes a 1-m longitudinal strip and zero section axial compression.
+    Follows source workbook-equivalent equations in ``shear_without_stirrups``.
+    These calculations compare capacity with *reference/edited* design shear:
+    they are NOT a validated live-FEM ULS shear envelope or detailing approval.
+    """
+    if shear_rows is not None and all('Total' in r for r in shear_rows):
+        forces=list(shear_rows)
+    else:
+        forces=calculate_design_shear_combinations(shear_rows)['rows']
+    steel = calculate_flexural_reinforcement(reinforcement_rows)['rows']
+    dc = calculate_design_constants(inputs, constants)
+    if not (len(forces) == len(steel) == len(_SHEAR_STRENGTH_LINKS) == 16):
+        raise ValueError('ULS shear check requires exactly 16 matching single-cell sections')
+    expected_members = [
+        'Top Slab', 'Top Slab', 'Top Slab',
+        'Bottom Slab', 'Bottom Slab', 'Bottom Slab',
+        *(['Side Wall'] * 10),
+    ]
+    table=[]
+    for i, (force, steel_row, link) in enumerate(zip(forces, steel, _SHEAR_STRENGTH_LINKS)):
+        dc_i, depth_col, steel_face=link
+        member=expected_members[i]
+        if force['Member'] != member or steel_row['Component'] != member:
+            raise ValueError(f'Shear and reinforcement row {i + 1} do not match {member}')
+        # Current solved shears are carried as Total; use the selected current
+        # reinforcement face and its actual first-layer bar/cover, not the
+        # older fixed effective-depth assumptions.
+        if shear_rows is not None and all('Total' in x for x in shear_rows):
+            from .autoflow import section_geometry_and_face
+            steel_face = ('Inner' if i in (2,5) or (i>=6 and i%2==1) else 'Outer')
+            current_bar = float(steel_row[f'{steel_face} Bar-1 (mm)'])
+            _,d_mm,_ = section_geometry_and_face(inputs,i,steel_face,current_bar,dc['values'])
+        else:
+            d_mm=dc['rows'][dc_i][depth_col]*1000
+        as_mm2=steel_row[f'Calculated {steel_face} (mm²/m)']
+        shear_tf_m=abs(force['Total'])
+        strength=shear_without_stirrups(
+            design_shear_tf_per_m=shear_tf_m,
+            provided_as_mm2_per_m=as_mm2,
+            effective_depth_mm=d_mm,
+            fck_mpa=dc['values']['fck_mpa'],
+        )
+        table.append({
+            'Component':member,
+            'Section':force['Location'],
+            'Face':force['Face'],
+            'Reinforcement (mm²/m)':as_mm2,
+            'Effective Depth Provided (mm)':d_mm,
+            'ρl = As/(bw d)':strength['longitudinal_rho'],
+            'k':strength['k'],
+            'Vmin (t/m)':strength['v_min_tf_per_m'],
+            'VRdc (t/m)':strength['v_rdc_tf_per_m'],
+            'VRd w/o shear reinf. (t/m)':strength['resistance_tf_per_m'],
+            'Design Shear (t/m)':shear_tf_m,
+            'Shear Reinf. Requirement':('Require' if strength['stirrups_required'] else 'Not Require'),
+        })
+    return {
+        'rows': table,
+        'columns': _SHEAR_STRENGTH_COLUMNS,
+        'row_count':len(table),
+        'required_count':sum(r['Shear Reinf. Requirement']=='Require' for r in table),
+        'shear_source':'Stage 3 edited/reference ULS shear-force components',
+        'status':'Source workbook arithmetic; engineering verification required',
+    }
+
+
+
+# Reference stirrup design after the 16-row "without shear reinforcement"
+# schedule. All displayed columns correspond to the original two-row example.
+# The rows are selected from *current* shear demand and capacity rather than
+# copied from the original PDF/Excel output. Layout inputs remain editable.
+_ULS_STIRRUP_COLUMNS = (
+    'Component', 'Section', 'Design Shear (t/m)', 'Φ (mm)',
+    'Spacing (mm)', 'Asw (mm²)', 'σcp', 'αcw', 'ν1',
+    'θ (degree)', 'VRd,max (t/m)', 'VRd,min (t/m)',
+    'VRd,s (t/m)', 'ρw = Asw/(s bw sinα)', 'ρw,min', 's max (mm)',
+)
+
+
+def default_uls_stirrup_inputs(shear_strength_result: dict) -> list[dict]:
+    """Propose *illustrative* layouts for every location requiring stirrups.
+
+    The original reference example uses five 8 mm legs at 225 mm spacing
+    with theta=21.8 degrees. This layout is NOT a design recommendation: its
+    spacing is noncompliant even in the unmodified source case.
+    """
+    if not isinstance(shear_strength_result, dict) or 'rows' not in shear_strength_result:
+        raise ValueError('Provide the computed shear-strength table first')
+    layouts=[]
+    for index, r in enumerate(shear_strength_result['rows']):
+        if r['Shear Reinf. Requirement'] == 'Require':
+            section=f"{index + 1}. {r['Component']} / {r['Section']} / {r['Face']}"
+            layouts.append({
+                'Section':section,
+                'Stirrup legs':5,
+                'Diameter (mm)':8.0,
+                'Spacing (mm)':225.0,
+                'θ (degree)':21.8,
+            })
+    return layouts
+
+
+def calculate_uls_stirrup_design_table(
+    shear_strength_result: dict,
+    *,
+    stirrup_inputs: list[dict] | None = None,
+    fck_mpa: float = 35.0,
+    fy_mpa: float = 500.0,
+) -> dict:
+    """Calculate the screenshot's 16-column shear-with-stirrups schedule.
+
+    The reference assumes vertical legs (sin(alpha)=1), zero axial concrete
+    compression sigma_cp, and alpha_cw=1. These are *model assumptions*, not
+    verified properties of the culvert. Demand comes from the current editable
+    ULS shear-force table, not from a validated FEM ULS shear envelope.
+
+    Rows are dynamically limited to sections where shear *without* stirrups
+    is insufficient. Whenever the governing section changes, layouts must be
+    reviewed again. Every result includes separate strength, minimum steel,
+    and spacing checks. No failed layout is reported as approved.
+    """
+    if not isinstance(shear_strength_result,dict) or not isinstance(shear_strength_result.get('rows'),list):
+        raise ValueError('Computed shear-strength rows are required')
+    checked = [r for r in shear_strength_result['rows'] if r['Shear Reinf. Requirement']=='Require']
+    defaults = default_uls_stirrup_inputs(shear_strength_result)
+    specifications = defaults if stirrup_inputs is None else stirrup_inputs
+    if not isinstance(specifications, list) or len(specifications) != len(checked):
+        raise ValueError('A matching stirrup layout is required for each shear-critical section')
+    table=[]; checks=[]
+    for i,(source, row, default) in enumerate(zip(checked, specifications, defaults),1):
+        if not isinstance(row,dict) or row.get('Section') != default['Section']:
+            raise ValueError(f'Stirrup row {i} does not match its shear-critical section')
+        legs=row.get('Stirrup legs')
+        if isinstance(legs,bool) or not isinstance(legs,(int,float)) or not math.isfinite(legs) or int(legs)!=legs:
+            raise ValueError(f'Stirrup row {i}: number of legs must be a positive whole number')
+        diameter=float(row.get('Diameter (mm)'))
+        spacing=float(row.get('Spacing (mm)'))
+        theta=float(row.get('θ (degree)'))
+        demand=float(source['Design Shear (t/m)'])
+        # Use the effective depth of the same shear-critical section.
+        depth=float(source['Effective Depth Provided (mm)'])
+        result=stirrup_check(
+            design_shear_tf_per_m=demand,
+            effective_depth_mm=depth,
+            legs=int(legs),diameter_mm=diameter,spacing_mm=spacing,
+            theta_deg=theta,fck_mpa=fck_mpa,fy_mpa=fy_mpa,
+        )
+        table.append({
+            'Component':source['Component'],
+            'Section':f"{source['Section']} — {source['Face']}",
+            'Design Shear (t/m)':result['design_shear_tf_per_m'],
+            'Φ (mm)':result['bar_dia_mm'],
+            'Spacing (mm)':result['spacing_mm'],
+            'Asw (mm²)':result['asw_mm2'],
+            'σcp':0.0,
+            'αcw':1.0,
+            'ν1':result['nu1'],
+            'θ (degree)':result['theta_deg'],
+            'VRd,max (t/m)':result['vrd_max_tf_per_m'],
+            'VRd,min (t/m)':result['vrd_min_tf_per_m'],
+            'VRd,s (t/m)':result['vrd_s_tf_per_m'],
+            'ρw = Asw/(s bw sinα)':result['rho_w'],
+            'ρw,min':result['rho_w_min'],
+            's max (mm)':result['max_spacing_mm'],
+        })
+        checks.append({
+            'Component':source['Component'],
+            'Section':f"{source['Section']} — {source['Face']}",
+            'Shear capacity':result['shear_strength_check'],
+            'Minimum stirrup steel':result['minimum_shear_reinforcement_check'],
+            'Spacing limit':result['stirrup_spacing_check'],
+            'Overall':result['status'],
+        })
+    return {
+        'rows':table,'columns':_ULS_STIRRUP_COLUMNS,'checks':checks,
+        'row_count':len(table),
+        'fail_count':sum(r['Overall']!='PASS (arithmetic only)' for r in checks),
+        'source':'Current editable ULS shear forces, linked reinforcement and design constants',
+        'status':'Reference stirrup arithmetic only; IRC load/action and detailing verification required',
     }
 
 def default_distribution_reinforcement_rows() -> list[dict]:
