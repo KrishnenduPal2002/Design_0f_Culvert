@@ -5,7 +5,6 @@ Run: py -3.14 -m streamlit run app.py
 """
 from __future__ import annotations
 
-from dataclasses import replace
 import io
 import math
 import tempfile
@@ -29,9 +28,9 @@ from src.calculations import (
     default_flexural_reinforcement_rows, calculate_flexural_reinforcement,
     default_design_constants, calculate_design_constants,
     calculate_uls_flexural_strength, calculate_moving_vehicle_uls_envelope,
-    calculate_live_frame_flexural_demands,
     default_distribution_reinforcement_rows, calculate_distribution_reinforcement,
     calculate_uls_shear_strength_table,
+    calculate_live_frame_shear_demands,
     default_uls_stirrup_inputs, calculate_uls_stirrup_design_table,
 )
 from src.drawings import (draw_culvert, draw_load_schematic, export_schematic_dxf,
@@ -43,7 +42,7 @@ from src.vehicle_loading import (VehicleLoadingInputs, vehicle_preset)
 from src.load_combinations import CombinationInputs
 from src.structural_analysis import is_original_geometry
 from src.drawings import draw_frame_solver_results
-from src.frame_solver import FrameOptions, run_frame_analysis
+from src.frame_solver import FrameOptions
 # The workbook reference benchmark is optional if only app.py was copied.
 # The complete installation still includes src/reference_fem.py and
 # data/reference_staad_model.json.
@@ -54,13 +53,7 @@ except ModuleNotFoundError as exc:
         raise
     solve_reference_case = None
     run_reference_static_benchmark = None
-from src.sls_design import calculate_sls_design
-from src.autoflow import (
-    calculate_live_shear_sections, auto_flexural_bar_rows, auto_distribution_rows,
-    section_geometry_and_face, auto_stirrup_rows,
-    sls_overrides_from_live, derived_dead_load_rows, live_spring_rows,
-    auto_temperature_rows,
-)
+from src.sls_design import calculate_sls_design, sls_demands_csv_template, parse_sls_demands_csv, steel_details_from_uls
 from src.bbs import calculate_bbs, reference_bars
 from src.boq import calculate_boq, reference_boq_items
 from src.quantity_exports import (bbs_template_csv, boq_template_csv, bbs_result_csv,
@@ -76,7 +69,7 @@ st.set_page_config(page_title="RCC Box Culvert | ULS, SLS, BBS & BOQ", page_icon
 
 @st.cache_data(show_spinner=False, max_entries=10)
 def _cached_moving_uls_envelope(inputs, earth, braking, vehicle, combo, options, step_m):
-    """Cached scan so changing unrelated UI fields doesn't re-solve >100 frames."""
+    """Cached ULS bending-and-shear scan; cache v2 includes 16-row FEM shears."""
     return calculate_moving_vehicle_uls_envelope(
         inputs, earth=earth, braking=braking, vehicle=vehicle, combo=combo,
         options=options, step_m=step_m,
@@ -314,29 +307,29 @@ with st.sidebar:
     haunch_width = st.number_input("Haunch horizontal size (mm)", min_value=1, value=150, step=10)
     haunch_height = st.number_input("Haunch vertical size (mm)", min_value=1, value=150, step=10)
     fill = st.number_input("Height of earth cushion (m)", min_value=0.0, value=0.30, step=0.05, format="%.3f")
-    wearing_coat_mm = st.number_input("Wearing coat thickness (mm)", min_value=0,
+    wearing_coat_mm = st.number_input("Wearing coat thickness (mm) — reference", min_value=0,
                                       value=50, step=5,
                                       help="Reference thickness from design note; vehicle-specific dispersion settings remain editable separately.")
-    ms_railing_width_m = st.number_input("MS railing width (m)", min_value=0.0,
+    ms_railing_width_m = st.number_input("MS railing width (m) — reference", min_value=0.0,
                                          value=0.50, step=0.05, format="%.3f")
 
     st.subheader("Stage 1 — Basic Parameters")
-    soil_friction_angle_deg = st.number_input("Angle of internal friction of soil φ (°)",
+    soil_friction_angle_deg = st.number_input("Angle of internal friction of soil φ (°) — reference",
                                              min_value=0.0, max_value=90.0, value=30.0, step=1.0)
     k0 = st.number_input("Earth pressure coefficient K₀", min_value=0.0, max_value=1.0,
                          value=0.50, step=0.05, format="%.3f")
     soil_density = st.number_input("Density of backfill (tf/m³)", min_value=0.01,
                                    value=2.0, step=0.1, format="%.3f")
-    wearing_course_density = st.number_input("Density of wearing course (tf/m³)",
+    wearing_course_density = st.number_input("Density of wearing course (tf/m³) — reference",
                                               min_value=0.01, value=2.2, step=0.1, format="%.3f")
-    concrete_density_tf_m3 = st.number_input("Density of concrete (t/m³)", min_value=0.01,
+    concrete_density_tf_m3 = st.number_input("Density of concrete (t/m³) — reference", min_value=0.01,
                     value=2.50, step=0.1, format="%.2f")
     gamma = st.number_input("Concrete unit weight (kN/m³)", min_value=0.01, value=25.0,
                             step=0.5, format="%.2f",
                             help="The design note also lists density of concrete as 2.50 t/m³; the existing model uses 25 kN/m³ by default.")
     surcharge_height = st.number_input("Live-load surcharge equivalent height (m)", min_value=0.0,
                                        value=1.20, step=0.1, format="%.3f")
-    safe_bearing_capacity = st.number_input("Safe bearing capacity (tf/m²)",
+    safe_bearing_capacity = st.number_input("Safe bearing capacity (tf/m²) — reference",
                                             min_value=0.0, value=10.0, step=0.5, format="%.2f")
     frame_k = st.number_input("Modulus of subgrade reaction (tf/m³)", min_value=1.0,
                               value=1000.0, step=100.0)
@@ -347,10 +340,10 @@ with st.sidebar:
     # Free-text entry lets engineers type decimal or scientific notation,
     # exactly as shown in the design note (e.g. 2.0E+05 and 3.2E+04).
     steel_modulus_text = st.text_input(
-        "Modulus of Elasticity of steel, Es (MPa)",
+        "Modulus of Elasticity of steel, Es (kN/m²)",
         value="2.0E+05", key="stage1_steel_modulus_text")
     concrete_modulus_text = st.text_input(
-        "Modulus of Elasticity of concrete, Ec (MPa)",
+        "Modulus of Elasticity of concrete, Ec (kN/m²)",
         value="3.2E+04", key="stage1_concrete_modulus_text")
 
     def parse_modulus_value(raw_value: str, field_name: str) -> float:
@@ -366,17 +359,17 @@ with st.sidebar:
 
     steel_modulus_reference = parse_modulus_value(steel_modulus_text, "Steel modulus Es")
     concrete_modulus_reference = parse_modulus_value(concrete_modulus_text, "Concrete modulus Ec")
-    st.caption("Material moduli are interpreted as MPa and converted to GPa for section checks. "
-               "Confirm material assumptions before engineering use.")
+    st.caption("Reference-only inputs are displayed from the design note but do not alter structural results. "
+               "The source's Es/Ec units require confirmation.")
 
-    st.subheader("Stage 3 — Braking forces")
+    st.subheader("Stage 3 — Braking-force reference")
     force_70rw = st.number_input("Class 70R(W) contribution (tf)", min_value=0.0, value=6.8, step=0.1)
     force_40t = st.number_input("Class 40T contribution (tf)", min_value=0.0, value=8.0, step=0.1)
     force_a = st.number_input("Class A contribution (tf)", min_value=0.0, value=1.14, step=0.01)
-    lever_arm = st.number_input("Assumed moment lever arm (m) (entered)", min_value=0.0, value=1.325, step=0.025, format="%.3f")
+    lever_arm = st.number_input("Assumed moment lever arm (m) — illustration only", min_value=0.0, value=1.325, step=0.025, format="%.3f")
     st.subheader("Stage 3 — Vehicle loading patterns")
     case_names = {
-        '70rw': 'Class 70R(W) — wheeled',
+        '70rw': 'Class 70R(W) — wheeled (Excel reference)',
         '40t': 'Class 40T — bogie: two 20 tf loads',
         '70rt': 'Class 70R(T) — tracked (5 equivalent stations)',
         'sv385': '385T — special multi-axle vehicle (SV)',
@@ -388,7 +381,7 @@ with st.sidebar:
     )
     preset_inputs = vehicle_preset(vehicle_code)
     st.caption('Each pattern has independent editable loads, spacings, contact width and impact settings. '
-               'Edit these values for the chosen loading pattern.')
+               'Defaults are extracted from the source Excel Input worksheet.')
     wheel_csv = st.text_area(
         'Equivalent load stations / wheel / axle loads (tf), comma-separated',
         value=', '.join(f'{v:g}' for v in preset_inputs.wheel_loads_tf),
@@ -404,7 +397,7 @@ with st.sidebar:
     elif vehicle_code == 'sv385':
         pass  # removed Streamlit reminder banner
     elif vehicle_code == '40t':
-        st.caption('40T BOGIE: two entered axle loads; not a tracked-load model.')
+        st.caption('Workbook: 40T BOGIE, two 20 tf loads at 1.22 m spacing; not a tracked load.')
     elif vehicle_code == 'custom':
         pass  # removed Streamlit reminder banner
     lead_axle = st.number_input(
@@ -413,7 +406,7 @@ with st.sidebar:
         key=f'lead_x_{vehicle_code}',
     )
     tyre_width = st.number_input(
-        'Tyre transverse contact width (m)', min_value=0.01,
+        'Reference transverse contact width (m)', min_value=0.01,
         value=preset_inputs.tyre_transverse_width_m, step=0.01,
         key=f'tyre_width_{vehicle_code}',
     )
@@ -428,24 +421,24 @@ with st.sidebar:
         key=f'spread_{vehicle_code}',
     )
     available_edge = st.number_input(
-        'Edge width availability (m)', min_value=0.01,
+        'Reference edge availability (m)', min_value=0.01,
         value=preset_inputs.avail_edge_width_m, step=0.01,
         key=f'edge_avail_{vehicle_code}',
     )
     available_centre = st.number_input(
-        'Centre width availability (m)', min_value=0.01,
+        'Reference centre availability (m)', min_value=0.01,
         value=preset_inputs.avail_centre_width_m, step=0.01,
         key=f'centre_avail_{vehicle_code}',
-        help='Applied to the selected wheel/axle load dispersion calculation.',
+        help='Used for wheeled, bogie, tracked and custom reference dispersion.',
     )
     sv_gap1, sv_gap2 = preset_inputs.sv_gap1_m, preset_inputs.sv_gap2_m
     if vehicle_code == 'sv385':
         sv_gap1 = st.number_input(
-            'SV transverse gap 1 (m)', min_value=0.01,
+            'SV transverse gap 1 — Excel U1375 (m)', min_value=0.01,
             value=preset_inputs.sv_gap1_m, step=0.01, key='sv_gap1',
         )
         sv_gap2 = st.number_input(
-            'SV transverse gap 2 (m)', min_value=0.01,
+            'SV transverse gap 2 — Excel U1376 (m)', min_value=0.01,
             value=preset_inputs.sv_gap2_m, step=0.01, key='sv_gap2',
         )
         override_impact = False
@@ -472,14 +465,17 @@ with st.sidebar:
     f_vehicle = st.number_input("Axle strip-load factor",value=1.0,min_value=0.0,step=.05)
     f_braking = st.number_input("Braking-force factor",value=1.0,min_value=0.0,step=.05)
     st.subheader("Stage 4B — Experimental 2D frame solver")
-    enable_frame = True
-    st.caption("In-app FEM runs automatically for supported vehicle models. Structural model and loading require verification.")
-    frame_e = concrete_modulus_reference / 1000.0
-    if not 1.0 <= frame_e <= 100.0:
-        st.error("Concrete modulus must be 1,000–100,000 MPa for the FEM model.")
-        st.stop()
+    enable_frame = st.checkbox("Run in-app FEM structural model", value=True,
+                               help="Computes *modelled* member actions and foundation reactions; not approved engineering results.")
+    frame_e = st.number_input("Concrete elastic modulus (GPa)", min_value=1.0,
+                              max_value=100.0, value=32.0, step=1.0)
     frame_mesh = st.slider("Frame divisions per slab/wall", 2, 24, 8)
-    scan_vehicle_uls = True
+    scan_vehicle_uls = st.checkbox(
+        'Scan axle positions for ULS flexural moment envelope', value=True,
+        help='Default ON: analyze multiple axle positions and retain the governing '
+             'signed moment for each reinforcement face. This is a sampled experimental '
+             'envelope, not a validated IRC moving-load combination.',
+    )
     moving_uls_step = st.select_slider(
         'Automatic moving-vehicle scan spacing (m)',
         options=[0.05, 0.10, 0.15, 0.25, 0.50], value=0.15,
@@ -492,18 +488,6 @@ with st.sidebar:
     braking_direction = st.selectbox("Braking global horizontal direction", ["Right (+x)", "Left (-x)"])
     st.caption("Support scheme: one horizontal anchor at bottom-left; vertical Winkler springs along bottom slab. "
                "These are engineering assumptions, not verified STAAD supports.")
-    with st.expander("Reinforcement cover and service-load factors", expanded=False):
-        dc_top_bottom = st.number_input("Top slab bottom cover (mm)", min_value=0.0, value=50., step=5., key="live_cover_top_bottom")
-        dc_top_top = st.number_input("Top slab top cover (mm)", min_value=0.0, value=75., step=5., key="live_cover_top_top")
-        dc_bottom = st.number_input("Bottom slab cover (mm)", min_value=0.0, value=75., step=5., key="live_cover_bottom")
-        dc_wall_outer = st.number_input("Side wall outer cover (mm)", min_value=0.0, value=75., step=5., key="live_cover_wall_outer")
-        dc_wall_inner = st.number_input("Side wall inner cover (mm)", min_value=0.0, value=50., step=5., key="live_cover_wall_inner")
-        st.caption("Service-load factors below are editable modelling assumptions—not automatically approved SLS combinations.")
-        sls_rare_vehicle = st.number_input("Rare-combination vehicle multiplier", min_value=0.0, value=1.0, step=0.1, key="live_sls_rare_vehicle")
-        sls_quasi_vehicle = st.number_input("Quasi-permanent vehicle multiplier", min_value=0.0, value=0.3, step=0.1, key="live_sls_quasi_vehicle")
-        sls_rare_braking = st.number_input("Rare-combination braking multiplier", min_value=0.0, value=1.0, step=0.1, key="live_sls_rare_braking")
-        sls_quasi_braking = st.number_input("Quasi-permanent braking multiplier", min_value=0.0, value=0.0, step=0.1, key="live_sls_quasi_braking")
-        st.caption("Enter engineer-confirmed factors; default factors illustrate the software workflow only.")
     st.subheader("Drawing options")
     braking_case_for_drawing = st.selectbox("Load schematic braking case", ["Class 70R(W) + A", "Class 40T + A"])
 
@@ -614,51 +598,6 @@ braking_results = result["braking_forces"]
 vehicle_results = result["vehicle_axle_loading"]
 combo_results = result["load_combinations"]
 frame_results = result.get("frame_solver")
-# Single source of truth for input-dependent calculations.
-_auto_error = None
-_auto_moments = None
-_auto_shears = None
-_auto_bars = None
-_auto_distribution = None
-_auto_uls_flexural = None
-_auto_env = None
-_auto_covers = {
-    'top_slab_bottom_cover_mm': dc_top_bottom,
-    'top_slab_top_cover_mm': dc_top_top,
-    'bottom_slab_cover_mm': dc_bottom,
-    'side_wall_outer_cover_mm': dc_wall_outer,
-    'side_wall_inner_cover_mm': dc_wall_inner,
-}
-_auto_constants = {
-    'fy_mpa': float(steel_grade.removeprefix('Fe')),
-    'fck_mpa': float(concrete_grade.removeprefix('M')),
-    'es_gpa': steel_modulus_reference / 1000.0,
-    'ecm_gpa': concrete_modulus_reference / 1000.0,
-    'modular_ratio_reference': steel_modulus_reference / concrete_modulus_reference,
-    'fctm_mpa': 0.259 * float(concrete_grade.removeprefix('M'))**(2/3),
-    **_auto_covers,
-    'haunch_start_extra_depth_m': inputs.haunch_height_m if inputs.haunch_count else 0.0,
-}
-if frame_results is not None:
-    try:
-        if scan_vehicle_uls:
-            _auto_env = _cached_moving_uls_envelope(
-                inputs, plot_earth_inputs, plot_braking_inputs, vehicle_inputs,
-                combo_inputs, frame_options, moving_uls_step)
-            _auto_moments = _auto_env['rows']
-            _auto_shears = _auto_env['shear_rows']
-        else:
-            _auto_moments = calculate_live_frame_flexural_demands(inputs, frame_results)
-            _auto_shears = calculate_live_shear_sections(inputs, frame_results)
-        _auto_bars = auto_flexural_bar_rows(
-            inputs, _auto_moments, _auto_covers,
-            _auto_constants['fck_mpa'], _auto_constants['fy_mpa'],
-            _auto_constants['es_gpa'], _auto_constants['fctm_mpa'])
-        _auto_distribution = auto_distribution_rows(_auto_bars)
-    except (ValueError, TypeError, KeyError, IndexError) as exc:
-        _auto_error = str(exc)
-else:
-    _auto_error = 'FEM unavailable for selected vehicle type or failed analysis.'
 # Compatibility with older src/loads.py versions that omit this breakdown key.
 # This is the haunch portion of total self-weight, not an additional load.
 haunch_self_weight_kn = loads.get(
@@ -1117,31 +1056,133 @@ with tab_calcs:
 
 
     with dead_load_tab:
-        st.subheader("Dead Load and SIDL — Current Geometry")
-        st.caption("Calculated from current dimensions and densities. Barriers and parapets are excluded until their complete dimensions are supplied.")
+        st.subheader("Dead Load and SIDL")
+        st.caption("Dead Load of Box — reference schedule in tonnes-force (t). Edit the dimensions and densities below.")
+
+        # The editable rows are the source of truth for this subsection. The
+        # Quantity/Weight output below is recalculated immediately on changes.
+        base_rows = default_dead_load_sidl_rows(inputs)
+        editor_rows = [
+            {**r, 'Area (m²)': r['Area (m²)'] if r['Area (m²)'] is not None else 0.0}
+            for r in base_rows
+        ]
+        edited_rows = st.data_editor(
+            editor_rows, key='dead_load_sidl_editor', hide_index=True,
+            use_container_width=True, num_rows='fixed', height=390,
+            disabled=['Member', 'Method'],
+            column_config={
+                'Member': st.column_config.TextColumn('Member', width='medium'),
+                'Nos': st.column_config.NumberColumn('Nos', min_value=0, step=1, format='%d'),
+                'Length (m)': st.column_config.NumberColumn('Length (m)', min_value=0.0, format='%.3f'),
+                'Breadth (m)': st.column_config.NumberColumn('Breadth (m)', min_value=0.0, format='%.3f'),
+                'Height (m)': st.column_config.NumberColumn('Height (m)', min_value=0.0, format='%.3f'),
+                'Density (t/m³)': st.column_config.NumberColumn('Density (t/m³)', min_value=0.0, format='%.3f'),
+                'Method': st.column_config.TextColumn('Method'),
+                'Area (m²)': st.column_config.NumberColumn('Area (m²)', min_value=0.0, format='%.3f'),
+            },
+        )
+        if hasattr(edited_rows, 'to_dict'):
+            edited_rows = edited_rows.to_dict('records')
+
+        p1, p2 = st.columns(2)
+        with p1:
+            ll_base_pressure = st.number_input(
+                'LL Base Pressure (t/m²)', min_value=0.0, value=0.50,
+                step=0.05, format='%.3f', key='dead_load_sidl_ll_pressure',
+            )
+        with p2:
+            base_area_default = (inputs.clear_width_m + 2.0 * inputs.wall_thickness_m) * inputs.length_m
+            use_area_from_geometry = st.checkbox(
+                'Calculate base slab area from current geometry', value=True,
+                key='dead_load_sidl_use_geom_area',
+            )
+            base_area_edit = None
+            if not use_area_from_geometry:
+                base_area_edit = st.number_input(
+                    'Base slab area (m²)', min_value=0.001,
+                    value=float(base_area_default), step=0.5,
+                    format='%.3f', key='dead_load_sidl_area_override',
+                )
         try:
-            # No stored geometric quantities or old 1x3x3 reference rows.
             dead_load = calculate_dead_load_sidl(
-                inputs, derived_dead_load_rows(inputs),
-                live_load_base_pressure_tf_m2=0.0)
-            st.dataframe([{
-                'Component':r['Member'], 'Volume (m³)':round(r['Weight (t)']/r['Density (t/m³)'],4),
-                'Weight (tf)':round(r['Weight (t)'],4)
-            } for r in dead_load['rows']],hide_index=True,use_container_width=True)
-            st.metric('Calculated dead-load base pressure', f"{dead_load['dead_load_base_pressure_tf_m2']:.3f} tf/m²")
-            st.metric('Safe bearing capacity (entered)', f"{dead_load['safe_bearing_capacity_tf_m2']:.3f} tf/m²")
-        except (ValueError, TypeError, ZeroDivisionError) as exc:
+                inputs, edited_rows,
+                live_load_base_pressure_tf_m2=ll_base_pressure,
+                base_area_m2=base_area_edit,
+            )
+            st.markdown('**Calculated member weights**')
+            weights = [
+                {'Sl. No.': i, 'Member': row['Member'],
+                 'Section area used (m²)': round(row['Section area used (m²)'], 4),
+                 'Weight (t)': round(row['Weight (t)'], 4)}
+                for i, row in enumerate(dead_load['rows'], start=1)
+            ]
+            st.dataframe(weights, hide_index=True, use_container_width=True)
+            st.markdown('**Base pressure summary**')
+            summary_rows = [
+                {'Calculation': 'Total weight on structure', 'Value': dead_load['total_weight_tf'], 'Unit': 't'},
+                {'Calculation': 'Area of base slab', 'Value': dead_load['base_slab_area_m2'], 'Unit': 'm²'},
+                {'Calculation': 'DL Base Pressure', 'Value': dead_load['dead_load_base_pressure_tf_m2'], 'Unit': 't/m²'},
+                {'Calculation': 'LL Base Pressure', 'Value': dead_load['live_load_base_pressure_tf_m2'], 'Unit': 't/m²'},
+                {'Calculation': 'Total Base Pressure', 'Value': dead_load['total_base_pressure_tf_m2'], 'Unit': 't/m²'},
+                {'Calculation': 'Safe Bearing Capacity', 'Value': dead_load['safe_bearing_capacity_tf_m2'], 'Unit': 't/m²'},
+            ]
+            st.dataframe(
+                [{**r, 'Value': round(r['Value'], 3)} for r in summary_rows],
+                hide_index=True, use_container_width=True,
+            )
+            if dead_load['base_pressure_within_capacity']:
+                st.write('**Reference comparison:** Total base pressure is below the entered safe bearing capacity.')
+            else:
+                st.error('Total base pressure exceeds the entered safe bearing capacity.')
+            st.caption('Reference discrepancy: the Crash Barrier and Haunch rows use the editable Area (m²) '
+                       'column. Changing their displayed breadth/height alone will not change their weights.')
+        except (ValueError, TypeError) as exc:
             st.error(f'Cannot calculate Dead Load and SIDL: {exc}')
 
+
     with spring_constant_tab:
-        st.subheader('Spring Constant — FEM Foundation Mesh')
-        st.caption('Each spring tributary width is generated from the current bottom-slab frame length and mesh divisions.')
-        st.dataframe([{
-            'Node':row['Node'],'x (m)':round(row['x (m)'],4),
-            'Tributary width (m)':round(row['Tributary width (m)'],4),
-            'Spring constant (tf/m)':round(row['Spring constant (tf/m)'],3)}
-            for row in live_spring_rows(inputs,frame_options)],
-            hide_index=True,use_container_width=True)
+        st.subheader('Spring Constant')
+        st.caption('Calculation of spring constant — edit the effective widths below. '
+                   'The modulus of subgrade reaction comes from Stage 1 Basic Parameters.')
+        spring_inputs = st.data_editor(
+            default_spring_constant_rows(),
+            key='stage1_spring_constant_editor',
+            hide_index=True, use_container_width=True, num_rows='fixed',
+            disabled=['S.No.', 'Node No.'],
+            column_config={
+                'S.No.': st.column_config.NumberColumn('S.No.', format='%d'),
+                'Node No.': st.column_config.TextColumn('Node No.', width='large'),
+                'Eff. Width (m)': st.column_config.NumberColumn(
+                    'Eff. Width (m)', min_value=0.0, step=0.0025, format='%.4f'
+                ),
+            },
+        )
+        if hasattr(spring_inputs, 'to_dict'):
+            spring_inputs = spring_inputs.to_dict('records')
+        try:
+            springs = calculate_spring_constants(inputs, spring_inputs)
+            st.markdown('**Calculated spring constants**')
+            st.dataframe(
+                [{**row,
+                  'Eff. Width (m)': round(row['Eff. Width (m)'], 4),
+                  'Spring constant (t/m)': round(row['Spring constant (t/m)'], 2)}
+                 for row in springs['rows']],
+                hide_index=True, use_container_width=True,
+                column_config={
+                    'S.No.': st.column_config.NumberColumn('S.No.', format='%d'),
+                    'Node No.': st.column_config.TextColumn('Node No.', width='large'),
+                    'Eff. Width (m)': st.column_config.NumberColumn('Eff. Width (m)', format='%.4f'),
+                    'Spring constant (t/m)': st.column_config.NumberColumn('Spring constant (t/m)', format='%.2f'),
+                },
+            )
+            st.caption(f"Subgrade modulus: {springs['subgrade_reaction_modulus_tf_m3']:.2f} t/m³ · "
+                       'Spring constant = Modulus × Effective width × 1 m strip.')
+            st.caption('The source screenshot rounds the first two widths to 0.06 and 0.14 m. '
+                       'The precise editable defaults 0.0625 and 0.1375 m reproduce its '
+                       '62.50 and 137.50 t/m results. These node widths are not '
+                       'automatically derived from changed geometry or mapped to the FEM solver.')
+        except (ValueError, TypeError) as exc:
+            st.error(f'Cannot calculate Spring Constant: {exc}')
 
     with earth_pressure_calc_tab:
         st.subheader('Earth Pressure')
@@ -1207,16 +1248,16 @@ with tab_calcs:
                         'Unit': st.column_config.TextColumn('Unit', width='small'),
                     })
             st.caption('The results update using the Stage 3 braking contributions and culvert length in the '
-                       'Design Inputs sidebar. The moment uses the entered lever arm '
+                       'Design Inputs sidebar. The moment uses the entered reference lever arm '
                        f"({braking_calcs['lever_arm_m']:.3f} m). Values are design-note arithmetic, "
-                       'not independently verified structural load combinations.')
+                       'not verified structural load combinations.')
         except (ValueError, TypeError, KeyError) as exc:
             st.error(f'Cannot calculate Braking Force: {exc}')
 
 
 with temperature_calc_tab:
     st.subheader('Temperature')
-    st.caption('Temperature effects from entered thermal parameters and current top-slab geometry.')
+    st.caption('Temperature effects as shown in the supplied design note — IRC 6:2017 Clause 215.')
     st.latex(r'F = E_c \alpha \Delta T \times A \times \text{profile factor}')
 
     tcol1, tcol2 = st.columns(2)
@@ -1237,7 +1278,7 @@ with temperature_calc_tab:
     def _temperature_gradient_panel(mode: str):
         st.markdown('**Effect of temperature gradient**')
         st.markdown(f'**Temperature {mode.capitalize()}**')
-        base = auto_temperature_rows(mode, inputs)
+        base = default_temperature_gradient_rows(mode)
         editable = [
             {'Zone': item['Zone'], 'ΔT (°C)': item['ΔT (°C)'],
              'b (m)': item['b (m)'], 't (m)': item['t (m)'],
@@ -1245,7 +1286,7 @@ with temperature_calc_tab:
             for item in base
         ]
         edited = st.data_editor(
-            editable, key=f'temp_{mode}_editor_h_{inputs.top_slab_thickness_m:.5f}', hide_index=True,
+            editable, key=f'temp_{mode}_editor', hide_index=True,
             use_container_width=True, num_rows='fixed',
             disabled=['Zone', 'Profile', 'Face'],
             column_config={
@@ -1285,6 +1326,11 @@ with temperature_calc_tab:
             c1.metric('Σ F',f"{panel['total_force_t']:.2f} t")
             c2.metric('Σ F×e',f"{panel['net_moment_t_m']:.3f} t·m")
             c3.metric('Equivalent ΔT',f"{panel['equivalent_delta_t_c']:.3f} °C")
+            ref=panel['reference']
+            st.caption(f"Screenshot reference: Σ F = {ref['total_force_t']:.2f} t, "
+                       f"Σ F×e = {ref['net_moment_t_m']:.3f} t·m, "
+                       f"Equivalent ΔT = {ref['equivalent_delta_t_c']:.3f} °C. "
+                       'Small differences can arise from rounded source modulus and intermediate values.')
             st.latex(r'M = E_c I \alpha \frac{\Delta T_{eq}}{h}')
         except (ValueError, TypeError, KeyError) as ex:
             st.error(f'Cannot calculate temperature {mode}: {ex}')
@@ -1319,8 +1365,8 @@ with temperature_calc_tab:
                 ('Difference between maximum and minimum shade air temperature',uniform['shade_air_difference_c'],'°C'),
                 ('Load effect due to temperature rise',uniform['temperature_rise_c'],'°C'),
                 ('Load effect due to temperature fall',uniform['temperature_fall_c'],'°C'),
-                ('Calculated thermal rise',uniform['applied_rise_c'],'°C'),
-                ('Calculated thermal fall',uniform['applied_fall_c'],'°C'),
+                ('Temperature rise for applying in STAAD',uniform['applied_rise_c'],'°C'),
+                ('Temperature fall for applying in STAAD',uniform['applied_fall_c'],'°C'),
             ]
             st.dataframe([{'Particulars':x, 'Value':round(v,1), 'Unit':u} for x,v,u in items],
                          use_container_width=True,hide_index=True)
@@ -1344,113 +1390,490 @@ _uls_linked_inputs = {
 _uls_linked_errors = {}
 
 with design_moment_calc_tab:
-    st.subheader('Modelled Design Moments and Shear Forces')
-    if _auto_moments is None or _auto_shears is None:
-        st.error('Live modelled forces unavailable: ' + str(_auto_error))
-    else:
-        st.caption('Current experimental FEM model and selected load factors. These are sampled face-specific moment and shear envelopes, not yet engineer-verified design actions.')
-        st.dataframe([{
-            'Component':m['mapped_member'],
-            'Section':_auto_shears[i]['Location'],
-            'Face':_auto_shears[i]['Face'],
-            'Modelled moment (tf·m/m)':round(m['moment_tf_m_per_m'],4),
-            'Modelled shear (tf/m)':round(_auto_shears[i]['Total'],4),
-            'Governing axle x for moment (m)':round(m.get('governing_lead_axle_position_m',vehicle_inputs.lead_axle_position_m),3),
-            'Governing axle x for shear (m)':round(_auto_shears[i].get('governing_lead_axle_position_m',vehicle_inputs.lead_axle_position_m),3),
-        } for i,m in enumerate(_auto_moments)],hide_index=True,use_container_width=True,height=610)
+    st.subheader('Design moment due to different load combination')
+    st.caption('Sign convention: +ve MZ causes tension at the top of the member; '
+               '-ve MZ causes tension at the bottom. Units: t-m/m.')
+
+    moment_editable_columns = ('ULS Normal', 'ULS LL', 'Rare Normal', 'Rare LL',
+                               'Quasi Normal', 'Quasi LL')
+    if 'design_moment_editor_version' not in st.session_state:
+        st.session_state['design_moment_editor_version'] = 0
+    if st.button('Reset Design Moments', key='design_moment_reset'):
+        st.session_state['design_moment_editor_version'] += 1
+
+    original_moments = default_design_moment_rows()
+    moment_input_rows = [
+        {'Member': row['Member'], 'Location': row['Location'], 'Face': row['Face'],
+         **{column: row[column] for column in moment_editable_columns}}
+        for row in original_moments
+    ]
+    edited_moments = st.data_editor(
+        moment_input_rows,
+        key=f"design_moment_editor_{st.session_state['design_moment_editor_version']}",
+        hide_index=True, use_container_width=True, num_rows='fixed', height=440,
+        disabled=['Member', 'Location', 'Face'],
+        column_config={
+            'Member': st.column_config.TextColumn('Member', width='small'),
+            'Location': st.column_config.TextColumn('Location', width='medium'),
+            'Face': st.column_config.TextColumn('Face', width='small'),
+            **{name: st.column_config.NumberColumn(name, format='%.4f')
+               for name in moment_editable_columns},
+        },
+    )
+    if hasattr(edited_moments, 'to_dict'):
+        edited_moments = edited_moments.to_dict('records')
+    try:
+        # Preserve the original Excel row labels for source traceability, without
+        # exposing any internal IDs or requiring an Excel file on Streamlit Cloud.
+        rows_for_calc = [
+            {**original, **edited}
+            for original, edited in zip(original_moments, edited_moments)
+        ]
+        moment_result = calculate_design_moment_combinations(rows_for_calc)
+        _uls_linked_inputs['Design Moment'] = rows_for_calc
+        st.markdown('**Calculated moments — ULS (Normal, LL, Factor load), Rare and Quasi-Permanent**')
+        moment_columns = ['Member', 'Location', 'Face',
+                          'ULS Normal', 'ULS LL', 'ULS Factor load',
+                          'Rare Normal', 'Rare LL', 'Rare Total',
+                          'Quasi Normal', 'Quasi LL', 'Quasi Total']
+        st.dataframe(
+            [{col: row[col] for col in moment_columns} for row in moment_result['rows']],
+            hide_index=True, use_container_width=True, height=520,
+            column_config={
+                col: st.column_config.NumberColumn(col, format='%.4f')
+                for col in moment_columns[3:]
+            },
+        )
+        st.caption('The four interior-support Excel rows containing #VALUE! were omitted '
+                   'for this single-cell reference case. Edited values also feed the linked '
+                   'ULS Flexural Strength Check; they do not change the separate '
+                   'Stage 5 ULS/SLS design checks.')
+    except (ValueError, TypeError) as exc:
+        _uls_linked_inputs['Design Moment'] = None
+        _uls_linked_errors['Design Moment'] = str(exc)
+        st.error(f'Cannot calculate Design Moments: {exc}')
+
+    st.divider()
+    st.markdown('### ULS Shear Force (t/m)')
+    if 'design_shear_editor_version' not in st.session_state:
+        st.session_state['design_shear_editor_version'] = 0
+    if st.button('Reset Shear Forces', key='design_shear_reset'):
+        st.session_state['design_shear_editor_version'] += 1
+
+    original_shears = default_design_shear_rows()
+    edited_shear_rows = None
+    shear_edit_rows = [
+        {'Member': row['Member'], 'Location': row['Location'], 'Face': row['Face'],
+         'Normal': row['Normal'], 'LL': row['LL']}
+        for row in original_shears
+    ]
+    edited_shears = st.data_editor(
+        shear_edit_rows,
+        key=f"design_shear_editor_{st.session_state['design_shear_editor_version']}",
+        hide_index=True, use_container_width=True, num_rows='fixed', height=460,
+        disabled=['Member', 'Location', 'Face'],
+        column_config={
+            'Member': st.column_config.TextColumn('Member', width='small'),
+            'Location': st.column_config.TextColumn('Location', width='medium'),
+            'Face': st.column_config.TextColumn('Face', width='medium'),
+            'Normal': st.column_config.NumberColumn('Normal (t/m)', format='%.4f'),
+            'LL': st.column_config.NumberColumn('LL (t/m)', format='%.4f'),
+        },
+    )
+    if hasattr(edited_shears, 'to_dict'):
+        edited_shears = edited_shears.to_dict('records')
+    try:
+        edited_shear_rows = [
+            {**original, **edited}
+            for original, edited in zip(original_shears, edited_shears)
+        ]
+        shear_result = calculate_design_shear_combinations(edited_shear_rows)
+        st.markdown('**Calculated ULS Shear Force — Normal, LL and Total**')
+        st.dataframe(
+            [{col: row[col] for col in ('Member', 'Location', 'Face', 'Normal', 'LL', 'Total')}
+             for row in shear_result['rows']],
+            hide_index=True, use_container_width=True, height=500,
+            column_config={
+                'Normal': st.column_config.NumberColumn('Normal (t/m)', format='%.4f'),
+                'LL': st.column_config.NumberColumn('LL (t/m)', format='%.4f'),
+                'Total': st.column_config.NumberColumn('Total (t/m)', format='%.4f'),
+            },
+        )
+    except (ValueError, TypeError) as exc:
+        st.error(f'Cannot calculate ULS shear forces: {exc}')
+
+
 
 with flexural_reinforcement_calc_tab:
-    st.subheader('Flexural R/F — Automatically Sized Trial Layout')
-    if _auto_bars is None:
-        st.error('Trial reinforcement cannot be calculated: '+str(_auto_error))
-    else:
-        st.caption('Diameter and spacing are automatically selected to meet the modelled one-layer flexural/minimum-steel arithmetic. Anchorage, laps, development length and detailing require independent design.')
-        try:
-            flexural_result = calculate_flexural_reinforcement(_auto_bars)
-            st.dataframe([{
-                'Component':r['Component'],'Section':r['Section'],'Face / location':r['Position'],
-                'Inner bar (mm)':r['Inner Bar-1 (mm)'],
-                'Inner spacing (mm)':r['Inner Spacing-1 (mm)'],
-                'Inner steel (mm²/m)':round(r['Calculated Inner (mm²/m)'],2),
-                'Outer bar (mm)':r['Outer Bar-1 (mm)'],
-                'Outer spacing (mm)':r['Outer Spacing-1 (mm)'],
-                'Outer steel (mm²/m)':round(r['Calculated Outer (mm²/m)'],2),
-            } for r in flexural_result['rows']],hide_index=True,use_container_width=True,height=620)
-        except (ValueError,TypeError,KeyError) as exc:
-            st.error('Cannot calculate trial reinforcement: '+str(exc))
+    st.subheader('Flexural R/F detail of RCC Box')
+    st.caption('Edit inner/outer reinforcement entries, bar diameters and spacing manually. '
+               'Calculated areas update only from bar sizes and spacing; no automatic bar redesign is applied.')
+    st.latex(r'A_{s,\,face}=\sum_i\frac{\pi\,\phi_i^2}{4}\frac{1000}{s_i}\quad(\mathrm{mm}^2/\mathrm{m})')
+
+    if 'flexural_rf_editor_version' not in st.session_state:
+        st.session_state['flexural_rf_editor_version'] = 0
+    if st.button('Reset Flexural R/F', key='flexural_rf_reset'):
+        st.session_state['flexural_rf_editor_version'] += 1
+
+    flexural_defaults = default_flexural_reinforcement_rows()
+    flexural_columns = {
+        'Component': st.column_config.TextColumn('Component', width='medium'),
+        'Section': st.column_config.TextColumn('Section', width='medium'),
+        'Position': st.column_config.TextColumn('Location / Face', width='medium'),
+        'Reference Inner (mm²/m)': st.column_config.NumberColumn('Inner provided — editable (mm²/m)', format='%.2f', min_value=0.0),
+        'Reference Outer (mm²/m)': st.column_config.NumberColumn('Outer provided — editable (mm²/m)', format='%.2f', min_value=0.0),
+    }
+    for face, count in [('Inner', 2), ('Outer', 3)]:
+        for number in range(1, count + 1):
+            flexural_columns[f'{face} Bar-{number} (mm)'] = st.column_config.NumberColumn(
+                f'{face} Bar-{number} (mm)', format='%.0f')
+            flexural_columns[f'{face} Spacing-{number} (mm)'] = st.column_config.NumberColumn(
+                f'{face} Spacing-{number} (mm)', format='%.0f')
+    flexural_inputs = st.data_editor(
+        flexural_defaults,
+        key=f"flexural_rf_editor_{st.session_state['flexural_rf_editor_version']}",
+        hide_index=True, use_container_width=True, num_rows='fixed', height=600,
+        disabled=['Component', 'Section', 'Position'],
+        column_config=flexural_columns,
+    )
+    if hasattr(flexural_inputs, 'to_dict'):
+        flexural_inputs = flexural_inputs.to_dict('records')
+    try:
+        flexural_result = calculate_flexural_reinforcement(flexural_inputs)
+        _uls_linked_inputs['Flexural R/F'] = flexural_inputs
+        st.markdown('**Calculated flexural reinforcement provided at inner and outer faces**')
+        result_cols = ['Component', 'Section', 'Position',
+                       'Reference Inner (mm²/m)', 'Calculated Inner (mm²/m)',
+                       'Reference Outer (mm²/m)', 'Calculated Outer (mm²/m)']
+        st.dataframe(
+            [{col: row[col] for col in result_cols} for row in flexural_result['rows']],
+            hide_index=True, use_container_width=True, height=590,
+            column_config={
+                **{name: st.column_config.NumberColumn(name, format='%.2f')
+                   for name in result_cols if '(mm²/m)' in name},
+            },
+        )
+        if flexural_result['all_match_source']:
+            st.write('**Reference comparison:** all 16 rows match the supplied two-decimal areas.')
+        else:
+            st.write('**Reference comparison:** some edited bar areas differ from the source schedule.')
+        st.caption('Blank bar entries mean no additional bar; a shown 0 mm bar contributes zero area. '
+                   'The source also displays an “MS Railing Width” note without reinforcement values; '
+                   'it is not included as a steel schedule row. '
+                   'Calculated areas feed the linked ULS Flexural Strength Check; '
+                   'matching the source alone does not verify required steel, anchorage, '
+                   'code compliance or the separate ULS design, BBS and detailing drawings.')
+    except (ValueError, TypeError) as exc:
+        _uls_linked_inputs['Flexural R/F'] = None
+        _uls_linked_errors['Flexural R/F'] = str(exc)
+        st.error(f'Cannot calculate Flexural R/F: {exc}')
+
 
 with design_constants_calc_tab:
-    st.subheader('Design Constants — Current Materials and Geometry')
-    st.write(f"**Concrete strength:** {_auto_constants['fck_mpa']:.0f} MPa | "
-             f"**Steel yield strength:** {_auto_constants['fy_mpa']:.0f} MPa | "
-             f"**Modular ratio Es/Ecm:** {_auto_constants['modular_ratio_reference']:.3f}")
-    st.caption('Cover is editable in the sidebar. The effective-depth schedule is recalculated from current thicknesses and geometric haunch height.')
+    st.subheader('Design Constants')
+    st.caption('Reference values from the supplied RCC Box design note. '
+               'The material constants are separate from the Stage 1 source-modulus '
+               'fields because their source units have not been reconciled.')
+    design_defaults = default_design_constants(inputs)
+    dc_material, dc_cover, dc_reference = st.columns([1, 1.15, 0.95])
+    with dc_material:
+        st.markdown('**Material properties**')
+        dc_fy = st.number_input('fᵧ — yield strength (MPa)', min_value=1.0,
+                                value=design_defaults['fy_mpa'], step=5.0, key='dc_fy')
+        dc_fck = st.number_input('fck — concrete strength (MPa)', min_value=1.0,
+                                 value=design_defaults['fck_mpa'], step=5.0, key='dc_fck')
+        dc_es = st.number_input('Eₛ — steel modulus (GPa)', min_value=0.01,
+                                value=design_defaults['es_gpa'], step=1.0, key='dc_es')
+        dc_ecm = st.number_input('Ecm — concrete modulus (GPa)', min_value=0.01,
+                                 value=design_defaults['ecm_gpa'], step=1.0, key='dc_ecm')
+        st.caption('Source references: Eₛ — Cl. 6.2.2, IRC:112-2020; '
+                   'Ecm — Table 6.5, IRC:112-2020.')
+    with dc_cover:
+        st.markdown('**Clear Cover**')
+        dc_top_bottom = st.number_input('Top Slab bottom cover (mm)', min_value=0.0,
+                                        value=design_defaults['top_slab_bottom_cover_mm'],
+                                        step=5.0, key='dc_top_bottom')
+        dc_top_top = st.number_input('Top Slab top cover (mm)', min_value=0.0,
+                                     value=design_defaults['top_slab_top_cover_mm'],
+                                     step=5.0, key='dc_top_top')
+        dc_bottom = st.number_input('Bottom Slab cover (mm)', min_value=0.0,
+                                    value=design_defaults['bottom_slab_cover_mm'],
+                                    step=5.0, key='dc_bottom')
+        dc_wall_outer = st.number_input('Side Wall Outer Face cover (mm)', min_value=0.0,
+                                        value=design_defaults['side_wall_outer_cover_mm'],
+                                        step=5.0, key='dc_wall_outer')
+        dc_wall_inner = st.number_input('Side Wall Inner Face cover (mm)', min_value=0.0,
+                                        value=design_defaults['side_wall_inner_cover_mm'],
+                                        step=5.0, key='dc_wall_inner')
+    with dc_reference:
+        st.markdown('**Source reference constants**')
+        dc_m = st.number_input('m — source modular ratio', min_value=0.01,
+                               value=design_defaults['modular_ratio_reference'],
+                               step=0.01, format='%.2f', key='dc_m')
+        dc_fctm = st.number_input('fctm — mean tensile strength (MPa)', min_value=0.01,
+                                  value=design_defaults['fctm_mpa'], step=0.1,
+                                  key='dc_fctm')
+        st.caption('fctm = 2.8 MPa is shown in the source for M35.')
+        dc_extra = st.number_input('Extra depth at haunch start (m) — source',
+                                   min_value=0.0,
+                                   value=design_defaults['haunch_start_extra_depth_m'],
+                                   step=0.005, format='%.3f', key='dc_extra')
     try:
-        dc_result=calculate_design_constants(inputs,_auto_constants)
-        if _auto_bars:
-            sections=[]
-            for i,bar in enumerate(_auto_bars):
-                selected='Inner' if i in (2,5) or (i>=6 and i%2==1) else 'Outer'
-                dia=float(bar[f'{selected} Bar-1 (mm)'])
-                h,d,c=section_geometry_and_face(inputs,i,selected,dia,_auto_covers)
-                sections.append({'Component':bar['Component'],'Section':bar['Section'],
-                                 'Face':selected,'Thickness at section (mm)':round(h,2),
-                                 'Cover (mm)':c,'Main bar (mm)':dia,
-                                 'Effective depth (mm)':round(d,2)})
-            st.dataframe(sections,hide_index=True,use_container_width=True,height=580)
-        else:
-            st.warning('Effective depth requires a successful current reinforcement calculation.')
-    except (ValueError,TypeError) as exc:
-        st.error('Cannot calculate Design Constants: '+str(exc))
+        design_values = {
+            'fy_mpa': dc_fy, 'fck_mpa': dc_fck,
+            'es_gpa': dc_es, 'ecm_gpa': dc_ecm,
+            'modular_ratio_reference': dc_m, 'fctm_mpa': dc_fctm,
+            'top_slab_bottom_cover_mm': dc_top_bottom,
+            'top_slab_top_cover_mm': dc_top_top,
+            'bottom_slab_cover_mm': dc_bottom,
+            'side_wall_outer_cover_mm': dc_wall_outer,
+            'side_wall_inner_cover_mm': dc_wall_inner,
+            'haunch_start_extra_depth_m': dc_extra,
+        }
+        dc_result = calculate_design_constants(inputs, design_values)
+        _uls_linked_inputs['Design Constants'] = design_values
+        st.write(f"**m (source):** {dc_result['values']['modular_ratio_reference']:.2f}  |  "
+                 f"**Eₛ / Ecm from displayed values:** "
+                 f"{dc_result['modular_ratio_from_displayed_moduli']:.2f}")
+        st.markdown('**Section depth and effective depth**')
+        st.dataframe(
+            dc_result['rows'], hide_index=True, use_container_width=True,
+            column_config={
+                col: st.column_config.NumberColumn(col, format='%.3f')
+                for col in dc_result['rows'][0] if col != 'Section'
+            },
+        )
+        st.caption('Effective depths use the design-note reference offsets: '
+                   'clear cover plus an assumed half-bar diameter (10 or 12 mm bars). '
+                   'For Side Wall (Non-Earth face), the centre reference uses the '
+                   'outer-face cover plus a 5 mm bar radius. The screenshot shows '
+                   '50 mm additional depth at the haunch start; this differs from '
+                   'the geometric 150 mm haunch and remains an editable reference assumption.')
+        if abs(dc_result['values']['modular_ratio_reference'] -
+               dc_result['modular_ratio_from_displayed_moduli']) > 0.005:
+            st.caption('Source discrepancy: m = 6.19 is printed in the reference, '
+                       'but 200 / 32 = 6.25 using the displayed moduli. '
+                       'Both are retained without silently altering either value.')
+        st.caption('These values feed the linked ULS Flexural Strength Check. '
+                   'They do not change the separate ULS/SLS design modules, '
+                   'BBS, structural solver demands, or reinforcement detailing.')
+    except (ValueError, TypeError) as exc:
+        _uls_linked_inputs['Design Constants'] = None
+        _uls_linked_errors['Design Constants'] = str(exc)
+        st.error(f'Cannot calculate Design Constants: {exc}')
 
-# All ULS flexural demands come from the same current FEM run and selected trial bars.
+
+
+# Linked ULS flexural reference check, placed after Design Constants and
+# before Distribution Reinforcement. No solver/ULS design state is modified.
+uls_moving_envelope = None  # reused by ULS shear in this same Streamlit rerun
 with uls_flexural_strength_calc_tab:
     st.subheader('ULS Flexural Strength Check')
-    if _auto_moments is None or _auto_bars is None:
-        st.error('Live ULS flexural check unavailable: '+str(_auto_error))
-    else:
-        try:
-            uls_flexural_result=calculate_uls_flexural_strength(
-                inputs,constants=_auto_constants,
-                reinforcement_rows=_auto_bars,live_demands=_auto_moments)
-            fields=['Component','Section','Face','Design Moment (t-m)',
-                    'd min (mm)','d provided (mm)','Depth Check',
-                    'Ast Reqd. (mm²/m)','Ast min (mm²/m)',
-                    'Ast provided (mm²/m)','Steel Check']
-            st.dataframe([{k:r[k] for k in fields} for r in uls_flexural_result['rows']],
-                         hide_index=True,use_container_width=True,height=600)
-        except (ValueError,TypeError,KeyError,IndexError) as exc:
-            st.error('Cannot calculate ULS flexural strength: '+str(exc))
+    st.markdown('**Check for strength (ULS : Basic Combination) (Max. Bending Moment)**')
+    st.latex(r'\frac{x_{u,\max}}{d}=\frac{0.0035}{0.0035+0.87 f_y/E_s}')
+    st.latex(r'R_{\lim}=0.36 f_{ck}\left(\frac{x_{u,\max}}{d}\right)\left[1-0.416\left(\frac{x_{u,\max}}{d}\right)\right]')
+    st.latex(r'd_{\min}=1000\sqrt{\frac{|M_u|}{100 R_{\lim}}}\quad(\mathrm{mm},\ M_u\mathrm{\ in\ t\cdot m/m})')
+    # Always use active FEM demands for this ULS flexural table.
+    # The source-selection radio has been removed from the UI.
+    live_source = True
+    try:
+        # Validate only the three upstream results. A generator-local locals()
+        # check always failed even when all inputs were valid (Python scoping).
+        required_sources = (('Design Constants', 'Flexural R/F') if live_source
+                            else ('Design Constants', 'Flexural R/F', 'Design Moment'))
+        unavailable_sources = [
+            name for name, source in _uls_linked_inputs.items()
+            if source is None and name in required_sources
+        ]
+        if unavailable_sources:
+            st.error('The linked ULS check needs a valid result from: '
+                     + ', '.join(unavailable_sources) + '.')
+            for source_name in unavailable_sources:
+                if source_name in _uls_linked_errors:
+                    st.write(f"**{source_name}:** {_uls_linked_errors[source_name]}")
+        elif live_source and frame_results is None:
+            st.error('Automatic FEM moments are unavailable for this input. Enable '
+                     '\"Run in-app FEM structural model\" in Stage 4B and choose '
+                     '70R(W), 40T or Custom vehicle loading. 70R tracked and 385T '
+                     'do not currently have a supported frame-load mapping. '
+                     'No historical Excel moments have been substituted.')
+        else:
+            uls_moving_envelope = None
+            if live_source and scan_vehicle_uls:
+                with st.spinner('Analyzing moving axle positions for face-specific ULS moments...'):
+                    uls_moving_envelope = _cached_moving_uls_envelope(
+                        inputs, plot_earth_inputs, plot_braking_inputs,
+                        vehicle_inputs, combo_inputs, frame_options,
+                        moving_uls_step,
+                    )
+            uls_flexural_result = calculate_uls_flexural_strength(
+                inputs,
+                constants=_uls_linked_inputs['Design Constants'],
+                moment_rows=_uls_linked_inputs['Design Moment'] if not live_source else None,
+                reinforcement_rows=_uls_linked_inputs['Flexural R/F'],
+                frame_results=(frame_results if live_source and not scan_vehicle_uls else None),
+                live_demands=(uls_moving_envelope['rows'] if uls_moving_envelope else None),
+            )
+            display_columns = [
+                'Component', 'Section', 'Face', 'Xu max/d', 'Xu max (m)',
+                'R lim (MPa)', 'd min (mm)', 'd provided (mm)',
+                'Depth Check', 'Design Moment (t-m)', 'Ast Reqd. (mm²/m)',
+                'Ast Lim (mm²/m)', 'Ast min (mm²/m)',
+                'Ast provided (mm²/m)', 'Steel Check',
+            ]
+            number_formats = {
+                'Xu max/d': '%.3f', 'Xu max (m)': '%.3f',
+                'R lim (MPa)': '%.3f', 'd min (mm)': '%.2f',
+                'd provided (mm)': '%.0f', 'Design Moment (t-m)': '%.3f',
+                'Ast Reqd. (mm²/m)': '%.2f', 'Ast Lim (mm²/m)': '%.3f',
+                'Ast min (mm²/m)': '%.3f', 'Ast provided (mm²/m)': '%.2f',
+            }
+            st.dataframe(
+                [{column: row[column] for column in display_columns}
+                 for row in uls_flexural_result['rows']],
+                hide_index=True, use_container_width=True, height=630,
+                column_config={
+                    **{column: st.column_config.NumberColumn(column, format=fmt)
+                       for column, fmt in number_formats.items()},
+                    'Depth Check': st.column_config.TextColumn('Check (depth)'),
+                    'Steel Check': st.column_config.TextColumn('Check (steel)'),
+                    'Section': st.column_config.TextColumn('Section', width='medium'),
+                    'Face': st.column_config.TextColumn('Face', width='small'),
+                },
+            )
+            st.write(f"**Depth:** {uls_flexural_result['depth_ok_count']}/"
+                     f"{uls_flexural_result['row_count']} OK  |  "
+                     f"**Reinforcement:** {uls_flexural_result['steel_ok_count']}/"
+                     f"{uls_flexural_result['row_count']} OK")
+    except (ValueError, TypeError, KeyError, IndexError) as exc:
+        st.error(f'Cannot calculate ULS Flexural Strength Check: {exc}')
 
 with distribution_reinforcement_calc_tab:
     st.subheader('Distribution Reinforcement')
-    if _auto_distribution is None:
-        st.error('Distribution steel unavailable: '+str(_auto_error))
-    else:
-        try:
-            distribution_result=calculate_distribution_reinforcement(_auto_distribution)
-            st.dataframe(distribution_result['rows'],hide_index=True,use_container_width=True,height=450)
-            st.caption('Required transverse steel is derived as 20% of the selected main reinforcement. The trial bar spacing and other detailing rules require checking.')
-        except (ValueError,TypeError,KeyError) as exc:
-            st.error('Cannot calculate distribution reinforcement: '+str(exc))
+    st.markdown('**Transverse steel**')
+    st.caption('As per IRC:112-2020, Clause 16.6.1.1(3): for one-way slabs, '
+               'secondary transverse reinforcement should be at least 20% '
+               'of the main reinforcement.')
+    st.latex(r'A_{s,\,provided}=\frac{\pi\,\phi^2}{4}\times\frac{1000}{s}\quad (\mathrm{mm}^2/\mathrm{m})')
 
-# Input-driven ULS shear-strength check, immediately after
+    if 'distribution_reinf_editor_version' not in st.session_state:
+        st.session_state['distribution_reinf_editor_version'] = 0
+    if st.button('Reset Distribution Reinforcement', key='distribution_reinf_reset'):
+        st.session_state['distribution_reinf_editor_version'] += 1
+
+    distribution_defaults = default_distribution_reinforcement_rows()
+    distribution_inputs = st.data_editor(
+        distribution_defaults,
+        key=f"distribution_reinf_editor_{st.session_state['distribution_reinf_editor_version']}",
+        hide_index=True, use_container_width=True, num_rows='fixed', height=420,
+        disabled=['Member', 'Surface', 'Position'],
+        column_config={
+            'Member': st.column_config.TextColumn('S.No. / Member', width='medium'),
+            'Surface': st.column_config.TextColumn('Surface', width='small'),
+            'Position': st.column_config.TextColumn('Location', width='small'),
+            'Required As (mm²/m)': st.column_config.NumberColumn('Aₛₜ Reqd. (mm²/m)', format='%.3f'),
+            'Diameter (mm)': st.column_config.NumberColumn('Dia (mm)', format='%.1f'),
+            'Spacing (mm)': st.column_config.NumberColumn('Spacing (mm)', format='%.1f'),
+        },
+    )
+    if hasattr(distribution_inputs, 'to_dict'):
+        distribution_inputs = distribution_inputs.to_dict('records')
+    try:
+        distribution_result = calculate_distribution_reinforcement(distribution_inputs)
+        st.markdown('**Calculated Distribution Reinforcement — Steel Provided and Check**')
+        st.dataframe(
+            distribution_result['rows'],
+            hide_index=True, use_container_width=True, height=430,
+            column_config={
+                'Member': st.column_config.TextColumn('S.No. / Member', width='medium'),
+                'Surface': st.column_config.TextColumn('Surface', width='small'),
+                'Position': st.column_config.TextColumn('Location', width='small'),
+                'Required As (mm²/m)': st.column_config.NumberColumn('Aₛₜ Reqd. (mm²/m)', format='%.3f'),
+                'Diameter (mm)': st.column_config.NumberColumn('Dia (mm)', format='%.1f'),
+                'Spacing (mm)': st.column_config.NumberColumn('Spacing (mm)', format='%.1f'),
+                'Provided As (mm²/m)': st.column_config.NumberColumn('Reinf. Provided (mm²/m)', format='%.3f'),
+                'Check': st.column_config.TextColumn('Check', width='small'),
+            },
+        )
+        passed = distribution_result['pass_count']
+        st.write(f'**Checks:** {passed} OK / {distribution_result["row_count"]} rows')
+        st.caption('The required steel areas are editable references from the supplied design schedule. '
+                   'OK means calculated steel provided ≥ entered required steel; it does not '
+                   'independently verify the 20% main-reinforcement ratio, maximum spacing, '
+                   'anchorage, or other code requirements. This table is not automatically '
+                   'connected to the ULS design or BBS modules.')
+    except (ValueError, TypeError) as exc:
+        st.error(f'Cannot calculate Distribution Reinforcement: {exc}')
+
+
+# Reference-equivalent ULS shear-strength check, immediately after
 # Distribution Reinforcement in the Calculations tab order.
 with uls_shear_strength_calc_tab:
     st.subheader('ULS Shear Strength Check')
     st.markdown('**Check for strength (ULS : Basic Combination) (Max. Shear force)**')
     st.markdown('**Shear resistance without shear reinforcement**')
-    st.caption('Preliminary section-strength equations. Modelled shears and support/detailing assumptions require independent verification.')
+    st.caption('Reference method: IRC:112-2020, Cl. 10.3.2 and Cl. 305.16.2(ii) Note. '
+               'The original sheet notes that the top slab was designed on an effective-width basis. '
+               'The strength expressions and section assumptions still require engineering review.')
     try:
-        if _auto_bars is None or _auto_shears is None:
-            st.error('Live ULS shear calculation unavailable: '+str(_auto_error))
+        required = ('Design Constants', 'Flexural R/F')
+        missing = [name for name in required if _uls_linked_inputs.get(name) is None]
+        if missing:
+            st.error('The shear check needs valid inputs from: '+', '.join(missing))
+        elif edited_shear_rows is None:
+            st.error('Please correct the ULS shear-force inputs in the Design Moment subsection.')
         else:
+            # Restore the ORIGINAL reference/edited ULS shears: no experimental FEM
+            # values are used by this subsection.
             shear_strength = calculate_uls_shear_strength_table(
                 inputs,
-                shear_rows=_auto_shears,
-                reinforcement_rows=_auto_bars,
-                constants=_auto_constants,
+                shear_rows=edited_shear_rows,
+                reinforcement_rows=_uls_linked_inputs['Flexural R/F'],
+                constants=_uls_linked_inputs['Design Constants'],
             )
+            from src.uls_design import shear_without_stirrups
+
+            editable_numeric = (
+                'Reinforcement (mm²/m)',
+                'Effective Depth Provided (mm)',
+                'Design Shear (t/m)',
+            )
+            if 'uls_shear_strength_manual_values' not in st.session_state:
+                st.session_state['uls_shear_strength_manual_values'] = {}
+            if 'uls_shear_strength_editor_version' not in st.session_state:
+                st.session_state['uls_shear_strength_editor_version'] = 0
+            if st.button('Reset ULS Shear Strength', key='uls_shear_strength_reset'):
+                st.session_state['uls_shear_strength_manual_values'] = {}
+                st.session_state['uls_shear_strength_editor_version'] += 1
+
+            manual_values = st.session_state['uls_shear_strength_manual_values']
+            dc_shear = calculate_design_constants(
+                inputs, _uls_linked_inputs['Design Constants']
+            )
+            fck_shear = dc_shear['values']['fck_mpa']
+            original_rows = shear_strength['rows']
+            rebuilt_rows = []
+            for i, original_row in enumerate(original_rows):
+                row = dict(original_row)
+                for field, value in manual_values.get(i, {}).items():
+                    if field in editable_numeric:
+                        row[field] = float(value)
+                resistance = shear_without_stirrups(
+                    design_shear_tf_per_m=float(row['Design Shear (t/m)']),
+                    provided_as_mm2_per_m=float(row['Reinforcement (mm²/m)']),
+                    effective_depth_mm=float(row['Effective Depth Provided (mm)']),
+                    fck_mpa=fck_shear,
+                )
+                row['ρl = As/(bw d)'] = resistance['longitudinal_rho']
+                row['k'] = resistance['k']
+                row['Vmin (t/m)'] = resistance['v_min_tf_per_m']
+                row['VRdc (t/m)'] = resistance['v_rdc_tf_per_m']
+                row['VRd w/o shear reinf. (t/m)'] = resistance['resistance_tf_per_m']
+                row['Shear Reinf. Requirement'] = (
+                    'Require' if resistance['stirrups_required'] else 'Not Require'
+                )
+                rebuilt_rows.append(row)
+
             numeric_columns = {
                 'Reinforcement (mm²/m)': '%.2f',
                 'Effective Depth Provided (mm)': '%.0f',
@@ -1461,31 +1884,76 @@ with uls_shear_strength_calc_tab:
                 'VRd w/o shear reinf. (t/m)': '%.3f',
                 'Design Shear (t/m)': '%.3f',
             }
-            st.dataframe(
+            st.caption('Edit Reinforcement, Effective Depth Provided, or Design Shear '
+                       'directly below. The other values and Require / Not Require '
+                       'are calculated from those entries. Uses the original '
+                       'reference-based shear-force schedule, not experimental FEM.')
+            updated = st.data_editor(
                 [{column: row[column] for column in shear_strength['columns']}
-                 for row in shear_strength['rows']],
+                 for row in rebuilt_rows],
+                key=f"uls_shear_strength_editor_{st.session_state['uls_shear_strength_editor_version']}",
                 use_container_width=True, hide_index=True, height=675,
+                num_rows='fixed',
+                disabled=[column for column in shear_strength['columns']
+                          if column not in editable_numeric],
                 column_config={
-                    **{col: st.column_config.NumberColumn(col, format=fmt)
-                       for col,fmt in numeric_columns.items()},
+                    **{col: st.column_config.NumberColumn(
+                          col, format=fmt, min_value=(0.01 if col == 'Effective Depth Provided (mm)' else 0.0),
+                          required=True)
+                       for col, fmt in numeric_columns.items()},
                     'Component': st.column_config.TextColumn('Component', width='small'),
                     'Section': st.column_config.TextColumn('Section', width='medium'),
                     'Face': st.column_config.TextColumn('Face', width='medium'),
-                    'Shear Reinf. Requirement': st.column_config.TextColumn('Shear Reinf. Requirement', width='medium'),
+                    'Shear Reinf. Requirement': st.column_config.TextColumn(
+                        'Shear Reinf. Requirement', width='medium'),
                 },
+            )
+            if hasattr(updated, 'to_dict'):
+                updated = updated.to_dict('records')
+            if len(updated) != 16:
+                raise ValueError('The original 16 ULS shear sections must remain unchanged.')
+
+            # Each edit is committed to separate session state and the editor is
+            # refreshed once, so dependent *columns in the same table* update.
+            # Only edited input fields are persisted; material/geometry changes
+            # continue to refresh all calculated values.
+            next_manual = {}
+            changed = False
+            for i, (updated_row, current_row, original_row) in enumerate(
+                    zip(updated, rebuilt_rows, original_rows)):
+                changes = {}
+                for field in editable_numeric:
+                    value = float(updated_row[field])
+                    if not math.isfinite(value) or value < 0 or (
+                            field == 'Effective Depth Provided (mm)' and value <= 0):
+                        raise ValueError(f'Row {i + 1}: {field} must be a valid positive/nonnegative value')
+                    if not math.isclose(value, float(original_row[field]),
+                                        rel_tol=0, abs_tol=1e-9):
+                        changes[field] = value
+                    if not math.isclose(value, float(current_row[field]),
+                                        rel_tol=0, abs_tol=1e-9):
+                        changed = True
+                if changes:
+                    next_manual[i] = changes
+            if changed:
+                st.session_state['uls_shear_strength_manual_values'] = next_manual
+                st.session_state['uls_shear_strength_editor_version'] += 1
+                st.rerun()
+
+            shear_strength['rows'] = rebuilt_rows
+            shear_strength['required_count'] = sum(
+                row['Shear Reinf. Requirement'] == 'Require' for row in rebuilt_rows
             )
 
             # Shear reinforcement design immediately follows the preceding
             # "without stirrups" shear-strength schedule. No static Excel
             # stirrup results are presented as if they were live design results.
-            stirrup_defaults=auto_stirrup_rows(
-                shear_strength, fck_mpa=_auto_constants['fck_mpa'],
-                fy_mpa=_auto_constants['fy_mpa'])
+            stirrup_defaults=default_uls_stirrup_inputs(shear_strength)
             if not stirrup_defaults:
                 st.info('No shear-critical sections in the current 16-row schedule. '
                         'No stirrups are automatically designed by this table.')
             else:
-                dc_shear=calculate_design_constants(inputs,_auto_constants)
+                dc_shear=calculate_design_constants(inputs,_uls_linked_inputs['Design Constants'])
                 stirrup_table=calculate_uls_stirrup_design_table(
                     shear_strength,stirrup_inputs=stirrup_defaults,
                     fck_mpa=dc_shear['values']['fck_mpa'],
@@ -1519,7 +1987,7 @@ with uls_shear_strength_calc_tab:
 
 with tab_earth:
     st.subheader("Stage 2 — Earth pressure and surcharge")
-    st.caption("Pressure unit tf/m²: 1 tf/m² = 9.80665 kPa. Calculated from current inputs.")
+    st.caption("Reference: Design Note Of Box Culvert 1x3x3, page 2. Pressure unit tf/m² means metric tonne-force per square metre. 1 tf/m² = 9.80665 kPa.")
     try:
         # Read the central calculation result; do not recalculate here.
         st.latex(r"p_{soil}(z)=K_0\gamma_{soil}z")
@@ -1528,7 +1996,7 @@ with tab_earth:
         pass  # removed Streamlit reminder banner
         sample = earth_results["pressure_at_bottom_slab_centreline"]
         c1, c2, c3 = st.columns(3)
-        c1.metric("Soil pressure at bottom slab", f"{sample['earth_pressure_t_m2']:.3f} tf/m²")
+        c1.metric("Soil pressure at reference bottom", f"{sample['earth_pressure_t_m2']:.3f} tf/m²")
         c2.metric("Uniform live-load surcharge", f"{sample['surcharge_pressure_t_m2']:.3f} tf/m²")
         c3.metric("Cushion pressure (separate)", f"{sample['cushion_pressure_t_m2']:.3f} tf/m²")
         profile = earth_results["pressure_profile"]
@@ -1544,13 +2012,16 @@ with tab_earth:
         pressure_ax.grid(alpha=0.25)
         pressure_ax.legend()
         st.pyplot(pressure_fig, clear_figure=True)
+        st.subheader("Compare with design note — page 2")
+        st.dataframe(earth_results["design_note_reference_comparison"], hide_index=True, use_container_width=True)
+        st.caption("Reference pressures only match when K₀=0.5 and soil density=2.0 tf/m³. Locations are the original design-note depths, not recalculated for modified geometry.")
         pass  # removed Streamlit reminder banner
     except ValueError as exc:
         st.error(f"Earth pressure inputs are invalid: {exc}")
 
 with tab_traffic:
     st.subheader("Stage 3 — Traffic braking-force summary")
-    st.caption("Current braking force inputs. Units are metric tonne-force (tf).")
+    st.caption("Design note, page 2: Class 70R(W) + A and Class 40T + A braking-force summaries. Units are metric tonne-force (tf).")
     pass  # removed Streamlit reminder banner
     cases = braking_results["cases"]
     st.latex(r"F_{total}=F_{vehicle}+F_{Class\ A}")
@@ -1558,26 +2029,37 @@ with tab_traffic:
     st.dataframe(cases, use_container_width=True, hide_index=True)
     pass  # removed Streamlit reminder banner
     st.bar_chart({row["Case"]: row["Per-metre force (tf/m)"] for row in cases})
-    st.download_button("Download calculated braking force CSV",
-                       data=("Case,Total force (tf),Per-metre force (tf/m)\n" +
-                             "".join(f"{r['Case']},{r['Total force (tf)']:.6f},{r['Per-metre force (tf/m)']:.6f}\n" for r in cases)),
-                       file_name="calculated_braking_forces.csv", mime="text/csv")
+    st.download_button("Download braking-force comparison CSV",
+                       data=("Case,Total force (tf),Per-metre force (tf/m),Reference total (tf),Reference per-metre (tf/m)\n" +
+                             "".join(f"{r['Case']},{r['Total force (tf)']:.6f},{r['Per-metre force (tf/m)']:.6f},{r['Note total (tf)']:.3f},{r['Note per metre (tf/m)']:.3f}\n" for r in cases)),
+                       file_name="braking_force_comparison.csv", mime="text/csv")
 
 with tab_vehicle:
     st.subheader("Stage 3 — Wheel loads, impact and effective-width dispersion")
-    st.caption('Selected: ' + case_names[vehicle_code] + '. All displayed axle loads use the current vehicle inputs.')
+    st.caption('Selected: ' + case_names[vehicle_code] + '. Workbook Input sections: '
+               '70R(W) rows 19+, 40T row 586+, 70R(T) row 961+, 385T row 1375+; '
+               'Custom remains editable. Values are workbook-reference only.')
     a,b,c,d=st.columns(4)
     a.metric("Effective span", f"{vehicle_results['effective_span_m']:.3f} m")
     b.metric("Impact factor", f"{vehicle_results['impact_factor']:.3f}")
     c.metric("Alpha (effective width)", f"{vehicle_results['alpha']:.3f}")
     d.metric('Active load stations', f"{vehicle_results['active_axle_count']}")
-    st.metric('Gross input vehicle load', f"{vehicle_results['vehicle_gross_pattern_load_tf']:.1f} tf")
+    st.metric('Gross reference vehicle load', f"{vehicle_results['vehicle_gross_pattern_load_tf']:.1f} tf")
     st.latex(r"b_1=b_{tyre}+2s(t_{wearing}+h_{fill})")
     st.latex(r"b_{eff}=\alpha a(1-a/l_0)")
     st.latex(r"q_{strip}=P_{wheel}I/b_{final}")
     st.dataframe(vehicle_results['axles'],use_container_width=True,hide_index=True)
-    st.caption("Inactive wheels are outside the selected effective span. These are modelled strip-load intensities, not verified beam/plate reactions or design effects.")
-    with st.expander("Position screening sweep only",expanded=True):
+    st.caption("Inactive wheels are outside the selected effective span. These are individual spreadsheet strip-load intensities, not verified beam/plate reactions or design effects.")
+    workbook_checks = {
+        '70rw': '70R(W), x=0.25 m: first station ≈ 5.195599 tf/m',
+        '40t': '40T, x=0.25 m: first station ≈ 6.112469 tf/m',
+        '70rt': '70R(T), x=0.25 m: first equivalent station ≈ 4.278729 tf/m',
+        'sv385': '385T, x=1.0 m: first trailer axle ≈ 3.272727 tf/m',
+        'custom': 'Custom Pattern: no verified Excel reference output',
+    }
+    pass  # removed Streamlit reminder banner
+    pass  # removed Streamlit reminder banner
+    with st.expander("Position screening sweep — reference only",expanded=True):
         screening = result['vehicle_position_screening']
         st.write(f"**{screening['positions_checked']}** sampled leading-wheel positions at **{screening['position_step_m']:.2f} m** intervals")
         st.metric("Largest sampled sum of strip-load intensities",
@@ -1640,54 +2122,221 @@ with tab_solver:
                 st.write("•", assumption)
         pass  # removed Streamlit reminder banner
 
+    if solve_reference_case is not None:
+        st.divider()
+        st.subheader("Workbook-matched static ULS benchmark — Python (cases 1001–1006)")
+        st.caption("Recomputes the exact 41-node, 41-member reference mesh, KFY spring supports, "
+                   "source member loads 501–507 (including SIDL and wearing course), and "
+                   "left/right surcharge case combinations. No STAAD software is needed. "
+                   "The values below are for the ORIGINAL workbook geometry and loads only: "
+                   "they do not follow edits to the Stage 1/3 inputs. Vehicle-generated "
+                   "traffic envelopes and approved IRC design remain outside this benchmark.")
+        if not is_original_geometry(inputs):
+            st.warning("Current geometry differs from the original workbook. The benchmark "
+                       "below still uses the original 3×3 reference model, not your modified inputs.")
+        workbook_case = st.selectbox(
+            "Original workbook static ULS combination",
+            ["1001", "1002", "1003", "1004", "1005", "1006"],
+            index=3, key="reference_uls_case",
+        )
+        try:
+            reference_solved = solve_reference_case(workbook_case)
+            st.write("**Independent recomputed member-end forces (tf and tf·m)**")
+            st.dataframe(reference_solved['member_end_actions'], hide_index=True,
+                         use_container_width=True, height=400)
+            st.caption("Global balance residuals (tf / tf·m): "
+                       f"Fx = {reference_solved['balance_fx_tf']:.2e}; "
+                       f"Fy = {reference_solved['balance_fy_tf']:.2e}; "
+                       f"Mz = {reference_solved['balance_moment_tfm']:.2e}. "
+                       "Equilibrium is necessary, not sufficient, for structural validity.")
+            benchmark_row = next((row for row in reference_solved['member_end_actions']
+                                  if row['member'] == 101 and row['end'] == 'start'), None)
+            if benchmark_row and workbook_case == "1004":
+                st.caption(f"Member 101 at node 1, 1004: Python Mz = "
+                           f"{benchmark_row['Mz_tfm']:.4f} tf·m; "
+                           "workbook Output(ULS) = −6.310 tf·m (rounded).")
+        except (ValueError, OSError, KeyError) as exc:
+            st.error(f"Cannot run original-workbook static benchmark: {exc}")
+
+    else:
+        st.info("The optional workbook static benchmark is not installed. Add `src/reference_fem.py` and `data/reference_staad_model.json` to enable it.")
+
 # Separate Stage 5 ULS design-checks tab removed from the interface.
 # Core src.uls_design calculations remain available to the project.
 
 with sls_calc_tab:
-    st.subheader('SLS Checks — Current Geometry and Service Loads')
-    st.caption('Rare and quasi-permanent modelled moments are recalculated using the entered service-load factors. The prototype currently evaluates the selected axle position, not a certified moving-load envelope.')
-    with st.expander('SLS material and crack-width settings',expanded=False):
-        sls_kt=st.number_input('Crack parameter kt',min_value=0.0,value=0.5,step=0.05,key='sls_kt_live')
-        sls_k1=st.number_input('Bond parameter k1',min_value=0.01,value=0.8,step=0.05,key='sls_k1_live')
-        sls_k2=st.number_input('Strain parameter k2',min_value=0.01,value=0.5,step=0.05,key='sls_k2_live')
-        use_crack_limit=st.checkbox('Enable engineer-specified crack-width limit',value=False,key='sls_limit_live')
-        sls_crack_limit=st.number_input('Permissible crack width (mm)',min_value=0.01,value=0.30,step=0.05,
-                                         disabled=not use_crack_limit,key='sls_crack_max_live')
-    if frame_results is None or _auto_bars is None:
-        st.error('SLS calculation unavailable: '+str(_auto_error))
-    else:
+    st.subheader("Stage 6 — Serviceability Limit State (SLS)")
+    pass  # removed Streamlit reminder banner
+    sls_source_mode = st.radio(
+        "SLS demand source",
+        ["Original Excel reference", "Manual engineer-entered demands", "Engineer-mapped SLS force CSV"],
+        horizontal=False, key="sls_source_mode",
+    )
+    st.download_button(
+        "Download SLS force template (CSV)", sls_demands_csv_template(),
+        file_name="sls_forces_template.csv", mime="text/csv", key="sls_force_template",
+    )
+    source_name = "Original Excel SLS reference moments (not verified for changed dimensions or loading)"
+    demand_overrides = {}
+    if sls_source_mode == "Manual engineer-entered demands":
+        source_name = "Engineer-entered manual SLS moments (requires review)"
+    if sls_source_mode == "Engineer-mapped SLS force CSV":
+        source_name = "Uploaded engineer-mapped SLS moments (not independently verified)"
+        file = st.file_uploader("Upload complete SLS force CSV", type="csv", key="sls_csv_upload")
+        if file is None:
+            pass  # removed Streamlit reminder banner
+            st.stop()
         try:
-            rare_combo=replace(combo_inputs,concrete_dead_factor=1.,soil_factor=1.,
-                               surcharge_factor=1.,cushion_factor=1.,
-                               vehicle_factor=sls_rare_vehicle,braking_factor=sls_rare_braking)
-            quasi_combo=replace(combo_inputs,concrete_dead_factor=1.,soil_factor=1.,
-                               surcharge_factor=1.,cushion_factor=1.,
-                               vehicle_factor=sls_quasi_vehicle,braking_factor=sls_quasi_braking)
-            rare_case=run_frame_analysis(inputs,plot_earth_inputs,plot_braking_inputs,vehicle_inputs,rare_combo,frame_options)
-            quasi_case=run_frame_analysis(inputs,plot_earth_inputs,plot_braking_inputs,vehicle_inputs,quasi_combo,frame_options)
-            rare_actions=calculate_live_frame_flexural_demands(inputs,rare_case)
-            quasi_actions=calculate_live_frame_flexural_demands(inputs,quasi_case)
-            overrides=sls_overrides_from_live(inputs,rare_actions,quasi_actions,_auto_bars,_auto_covers)
-            sls=calculate_sls_design(
-                inputs,overrides,demand_source='Current experimental FEM with user-entered SLS factors',
-                es_gpa=_auto_constants['es_gpa'],ecm_gpa=_auto_constants['ecm_gpa'],
-                k_t=sls_kt,k_1=sls_k1,k_2=sls_k2,
-                permissible_crack_width_mm=sls_crack_limit if use_crack_limit else None)
-            result['sls_design']=sls
-            rare_view,crack_view=st.tabs(['Rare-combination stresses','Quasi-permanent crack widths'])
-            with rare_view:
-                st.subheader('SLS Rare Combination — Concrete and Steel Stress Check')
-                st.dataframe(_sls_rare_stress_schedule(sls),hide_index=True,use_container_width=True,height=650)
-            with crack_view:
-                st.subheader('SLS Quasi-Permanent Combination — Crack Width Check')
-                st.dataframe(_sls_quasi_crack_schedule(sls),hide_index=True,use_container_width=True,height=650)
-                if use_crack_limit:
-                    st.dataframe([{
-                        'Section':r['section_id'],'Calculated crack width (mm)':r['crack_width_mm'],
-                        'Permissible (mm)':sls_crack_limit,'Check':r['crack_status']
-                    } for r in sls['sections']],hide_index=True,use_container_width=True)
-        except (ValueError,TypeError,KeyError,IndexError,ZeroDivisionError) as exc:
-            st.error('Cannot calculate SLS from current model: '+str(exc))
+            demand_overrides = parse_sls_demands_csv(file.getvalue())
+        except (ValueError, TypeError) as exc:
+            st.error(f"Invalid SLS force file: {exc}")
+            st.stop()
+
+    with st.expander("SLS material constants and acceptance criteria", expanded=True):
+        st.caption("Concrete and steel grades come from the sidebar. The values below are the reference-section assumptions, not automatic IRC approvals.")
+        mat1, mat2, mat3 = st.columns(3)
+        with mat1:
+            sls_es = st.number_input("Steel modulus Es (GPa)", min_value=1.0, value=200.0, step=5.0, key="sls_es")
+            sls_ecm = st.number_input("Concrete modulus Ecm (GPa)", min_value=1.0, value=32.30824972296583, step=0.5, key="sls_ecm")
+        with mat2:
+            sls_kt = st.number_input("Crack parameter kt", min_value=0.0, value=0.5, step=0.05, key="sls_kt")
+            sls_k1 = st.number_input("Bond parameter k1", min_value=0.01, value=0.8, step=0.05, key="sls_k1")
+        with mat3:
+            sls_k2 = st.number_input("Strain parameter k2", min_value=0.01, value=0.5, step=0.05, key="sls_k2")
+            use_crack_limit = st.checkbox("Specify engineer-approved permissible crack width", value=False, key="sls_enable_crack_limit")
+            sls_crack_limit = st.number_input("Permissible crack width (mm)", min_value=0.01, value=0.30, step=0.05, disabled=not use_crack_limit, key="sls_crack_limit")
+        if not use_crack_limit:
+            st.caption("No crack-width PASS or FAIL will be reported until a verified permissible limit is set.")
+
+    share_with_uls = st.checkbox(
+        "Use current ULS effective depths and provided reinforcement as SLS starting values",
+        value=False, key="sls_uls_shared_steel",
+    )
+    if share_with_uls:
+        source_name += "; optionally copied current ULS section d/As (review required)"
+        pass  # removed Streamlit reminder banner
+        for sid, shared in steel_details_from_uls(result["uls_design"]).items():
+            demand_overrides.setdefault(sid, {}).update(shared)
+
+    sls_options = {
+        "es_gpa": sls_es, "ecm_gpa": sls_ecm,
+        "k_t": sls_kt, "k_1": sls_k1, "k_2": sls_k2,
+        "permissible_crack_width_mm": sls_crack_limit if use_crack_limit else None,
+    }
+    try:
+        base_sls = calculate_sls_design(inputs, demand_overrides, demand_source=source_name, **sls_options)
+        fields = [
+            "rare_moment_tf_m_per_m", "quasi_moment_tf_m_per_m", "section_depth_mm",
+            "effective_depth_mm", "provided_as_mm2_per_m", "equivalent_bar_diameter_mm", "cover_mm",
+        ]
+        records = []
+        for section in base_sls["sections"]:
+            records.append({
+                "section_id": section["section_id"], "member": section["member"],
+                "location": section["location"],
+                **{field: section[field] for field in fields},
+            })
+        with st.expander("Edit service moments, section depths, cover and reinforcement", expanded=True):
+            st.caption("Rare and quasi moments are independent SLS inputs. Check their source, sign and governing reinforcement face with your sir.")
+            editor_tag = "sls_editor_" + sls_source_mode + ("_with_uls_steel" if share_with_uls else "_independent")
+            edited = st.data_editor(
+                records, hide_index=True, num_rows="fixed", use_container_width=True,
+                disabled=["section_id", "member", "location"], key=editor_tag,
+                column_config={
+                    "section_id": st.column_config.TextColumn("Section ID"),
+                    "member": st.column_config.TextColumn("Member"),
+                    "location": st.column_config.TextColumn("Design location"),
+                    "rare_moment_tf_m_per_m": st.column_config.NumberColumn("Rare moment (tf·m/m)", format="%.3f"),
+                    "quasi_moment_tf_m_per_m": st.column_config.NumberColumn("Quasi moment (tf·m/m)", format="%.3f"),
+                    "section_depth_mm": st.column_config.NumberColumn("Section depth (mm)", format="%.1f"),
+                    "effective_depth_mm": st.column_config.NumberColumn("Effective depth (mm)", format="%.1f"),
+                    "provided_as_mm2_per_m": st.column_config.NumberColumn("Provided steel (mm²/m)", format="%.2f"),
+                    "equivalent_bar_diameter_mm": st.column_config.NumberColumn("Bar diameter (mm)", format="%.2f"),
+                    "cover_mm": st.column_config.NumberColumn("Cover (mm)", format="%.1f"),
+                },
+            )
+        edited_rows = edited.to_dict("records") if hasattr(edited, "to_dict") else list(edited)
+        user_overrides = {}
+        changes = 0
+        originals = {r["section_id"]: r for r in records}
+        for row in edited_rows:
+            ident = row["section_id"]
+            if ident not in originals:
+                raise ValueError("Unknown SLS section identifier")
+            updated = {}
+            for field in fields:
+                num = float(row[field])
+                if not math.isfinite(num):
+                    raise ValueError(f"Non-finite SLS input for {ident} / {field}")
+                updated[field] = num
+                if not math.isclose(num, originals[ident][field], rel_tol=0, abs_tol=1e-9):
+                    changes += 1
+            user_overrides[ident] = updated
+        if changes and sls_source_mode == "Original Excel reference":
+            source_name = "Original Excel SLS reference edited by user (trial inputs)"
+        sls = calculate_sls_design(inputs, user_overrides, demand_source=source_name, **sls_options)
+        sls["input_mode"] = sls_source_mode
+        sls["editable_values_changed"] = changes
+        result["sls_design"] = sls
+        result["limitations"] = [v for v in result["limitations"] if not v.startswith("Stage 6 SLS demand source:")]
+        result["limitations"].append(f"Stage 6 SLS demand source: {source_name}. No certified verification of SLS loads or crack limit.")
+    except (ValueError, TypeError, KeyError, ZeroDivisionError) as exc:
+        st.error(f"Invalid SLS input: {exc}")
+        st.stop()
+
+    rare_view, crack_view = st.tabs(["Rare-combination stresses", "Quasi-permanent crack widths"])
+    with rare_view:
+        st.markdown('### SLS Rare Combination — Concrete and Steel Stress Check')
+        st.markdown(f"**Modular ratio, m = {sls['materials']['es_gpa'] / sls['materials']['ecm_gpa']:.2f}**")
+        rare_rows = _sls_rare_stress_schedule(sls)
+        st.dataframe(
+            rare_rows, hide_index=True, use_container_width=True, height=665,
+            column_config={
+                "A_st provided (mm²/m)": st.column_config.NumberColumn("A_st provided (mm²/m)", format="%.2f"),
+                "x_u (mm)": st.column_config.NumberColumn("x_u (mm)", format="%.2f"),
+                "I_cr (m⁴)": st.column_config.NumberColumn("I_cr (m⁴)", format="%.5f"),
+                "Moment (t·m/m)": st.column_config.NumberColumn("Moment (t·m/m)", format="%.3f"),
+                "Concrete stress (t/m²)": st.column_config.NumberColumn("Concrete stress (t/m²)", format="%.1f"),
+                "Concrete limit (t/m²)": st.column_config.NumberColumn("Concrete permissible (t/m²)", format="%.1f"),
+                "Steel stress (t/m²)": st.column_config.NumberColumn("Tensile stress (t/m²)", format="%.2f"),
+                "Steel limit (t/m²)": st.column_config.NumberColumn("Tensile permissible (t/m²)", format="%.1f"),
+            },
+        )
+    with crack_view:
+        st.markdown('### SLS Quasi-Permanent Combination — Crack Width Check')
+        with st.expander('Crack-width equations (IRC:112 worksheet reference)', expanded=False):
+            st.latex(r'w_k = s_{r,\max}(\varepsilon_{sm}-\varepsilon_{cm})')
+            st.latex(r'\rho_{p,\mathrm{eff}} = \frac{A_s}{A_{c,\mathrm{eff}}}')
+            st.latex(r'A_{c,\mathrm{eff}}=b \min\left[2.5(h-d),\frac{h-x}{3},\frac{h}{2}\right]')
+            st.latex(r's_{r,\max}=3.4c+\frac{0.425k_1k_2\phi_{eq}}{\rho_{p,\mathrm{eff}}}')
+            st.caption('Using the selected concrete/steel, cracked section, cover and bond assumptions.')
+        quasi_rows = _sls_quasi_crack_schedule(sls)
+        st.dataframe(
+            quasi_rows, hide_index=True, use_container_width=True, height=665,
+            column_config={
+                'A_st (mm²/m)': st.column_config.NumberColumn('A_st (mm²/m)', format='%.2f'),
+                'A_c,eff (mm²/m)': st.column_config.NumberColumn('A_c,eff (mm²/m)', format='%.0f'),
+                'ρ_p,eff': st.column_config.NumberColumn('ρ_p,eff', format='%.5f'),
+                'Φ_eq (mm)': st.column_config.NumberColumn('Φ_eq (mm)', format='%.2f'),
+                'Clear cover (mm)': st.column_config.NumberColumn('Clear cover (mm)', format='%.1f'),
+                '5(c + Φ/2) (mm)': st.column_config.NumberColumn('5(c + Φ/2) (mm)', format='%.2f'),
+                'S_r,max (mm)': st.column_config.NumberColumn('S_r,max (mm)', format='%.2f'),
+                'Quasi moment (tf·m/m)': st.column_config.NumberColumn('Quasi moment (tf·m/m)', format='%.5f'),
+                'σ_sc (MPa)': st.column_config.NumberColumn('σ_sc (MPa)', format='%.1f'),
+                'ε_sm − ε_cm': st.column_config.NumberColumn('ε_sm − ε_cm', format='%.6f'),
+                'Crack width (mm)': st.column_config.NumberColumn('Crack width (mm)', format='%.3f'),
+            },
+        )
+        if use_crack_limit:
+            status_rows = [{
+                'Component': r['Component'], 'Section': r['Section'],
+                'Face / location': r['Face / location'],
+                'Crack width (mm)': r['Crack width (mm)'],
+                'Permissible width (mm)': sls['permissible_crack_width_mm'],
+                'Check': sls['sections'][i]['crack_status'],
+            } for i, r in enumerate(quasi_rows)]
+            st.markdown('**Crack-width acceptance check**')
+            st.dataframe(status_rows, hide_index=True, use_container_width=True)
 
 # Stage 7: quantity worksheets are not structural design checks. They use
 # reference cut lengths/counts and general BOQ quantities unless edited by sir.
@@ -1698,7 +2347,7 @@ with tab_bbs:
                "Only an approved reinforcement drawing and engineer-reviewed schedule can authorize fabrication.")
     bbs_col1,bbs_col2=st.columns(2)
     with bbs_col1:
-        allowance=st.number_input("Additional lap/bend allowance (%) 5%", min_value=0.0,
+        allowance=st.number_input("Additional lap/bend allowance (%) — reference 5%", min_value=0.0,
                                   max_value=100.0, value=5.0, step=0.5, key="bbs_allowance_pct")
     with bbs_col2:
         st.download_button("Download editable BBS template (CSV)", bbs_template_csv(),
@@ -1768,9 +2417,10 @@ with tab_boq:
             st.stop()
     source_boq=reference_boq_items()
     boq_edit_rows=[{'id':x['id'], 'Item':x['description'], 'Unit':x['unit'],
+                    'Excel reference':float(x['reference_quantity']),
                     'Working quantity':float(from_csv_overrides.get(x['id'],x['reference_quantity']))}
                    for x in source_boq]
-    edited_boq=st.data_editor(boq_edit_rows,disabled=['id','Item','Unit'],
+    edited_boq=st.data_editor(boq_edit_rows,disabled=['id','Item','Unit','Excel reference'],
                               use_container_width=True,hide_index=True,num_rows='fixed',
                               key='stage7_boq_editor',height=440)
     if hasattr(edited_boq,'to_dict'):
@@ -1790,7 +2440,7 @@ with tab_boq:
         vol=next(x['quantity'] for x in core if x['description'].startswith('TOTAL'))
         metric1,metric2,metric3=st.columns(3)
         metric1.metric('Current culvert concrete',f'{vol:,.3f} m³')
-        metric2.metric('Concrete components',f"{len(core)} items")
+        metric2.metric('Original BOQ culvert concrete',f"{boq_result['reference_box_concrete_m3']:,.3f} m³")
         metric3.metric('BOQ steel estimator vs BBS',f"{boq_result['boq_vs_bbs_rebar_difference_t']:+,.3f} t")
         plot=boq_concrete_chart(boq_result)
         st.pyplot(plot)

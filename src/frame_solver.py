@@ -268,7 +268,7 @@ def run_frame_analysis(
         kg=e['T'].T@kl@e['T']
         ids=e['dofs'];K[np.ix_(ids,ids)] += kg
 
-    compnames=("concrete_dead","soil","surcharge","cushion","vehicle","braking")
+    compnames=("concrete_dead","wearing_course","soil","surcharge","cushion","vehicle","braking")
     nodal_by_component={key:np.zeros(n_dof) for key in compnames}
     element_fe_by_component={key:[np.zeros(6) for _ in elements] for key in compnames}
     # Recover actual section moments within elements (especially under axle
@@ -304,8 +304,18 @@ def run_frame_analysis(
     top_w=inputs.concrete_unit_weight_kn_m3*(inputs.clear_width_m+2*inputs.wall_thickness_m)*inputs.top_slab_thickness_m/span
     bottom_w=inputs.concrete_unit_weight_kn_m3*(inputs.clear_width_m+2*inputs.wall_thickness_m)*inputs.bottom_slab_thickness_m/span
     wall_w=inputs.concrete_unit_weight_kn_m3*inputs.wall_thickness_m*inputs.clear_height_m/rise
+    # Wearing-course gravity load, separate from RCC self-weight and from the
+    # soil cushion. The 2D centreline-frame length differs from the actual top
+    # slab outer width, so preserve the total 1m-strip gravity force by using
+    # outer-width/centreline-span scaling (same approach as top RCC self-weight).
+    # Units: m * tf/m^3 * kN/tf = kN/m^2; multiply by 1m longitudinal strip.
+    wearing_w=(inputs.wearing_coat_thickness_m
+               * inputs.wearing_course_density_tf_m3 * TF_TO_KN
+               * (inputs.clear_width_m+2*inputs.wall_thickness_m) / span)
     for eid in groups['Top slab']:
         add_uniform_global('concrete_dead',elements[eid],0,-top_w)
+        if wearing_w:
+            add_uniform_global('wearing_course',elements[eid],0,-wearing_w)
     for eid in groups['Bottom slab']:
         add_uniform_global('concrete_dead',elements[eid],0,-bottom_w)
     for member in ('Left wall','Right wall'):
@@ -368,6 +378,7 @@ def run_frame_analysis(
 
     factors={
         'concrete_dead':combo.concrete_dead_factor,
+        'wearing_course':combo.wearing_course_factor,
         'soil':combo.soil_factor,
         'surcharge':combo.surcharge_factor,
         'cushion':combo.cushion_factor,
@@ -532,6 +543,7 @@ def run_frame_analysis(
             'Earth-pressure datum, opposing wall loading, fill application, braking lever arm/direction are assumptions',
             'Wheel point loads use spreadsheet effective-width intensities; full IRC axle/patch cases are not verified',
             'The user-configured factors are NOT certified ULS/SLS design combinations',
+            'Wearing course now applies as separate gravity load; factor 1.0 is provisional and project-specific load factors require approval',
             'Haunch shape affects self-weight but not frame member EI; design note haunch area still differs',
             'Mesh sensitivity should be checked separately; no code-approved capacity, crack-width, shear reinforcement, BBS/BOQ or approval',
         ],

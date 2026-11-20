@@ -12,6 +12,9 @@ import math
 class CombinationInputs:
     name: str = 'User-configured illustration (NOT approved)'
     concrete_dead_factor: float = 1.0
+    # Superimposed permanent wearing-course load is a separate FEM action.
+    # Default 1.0 is illustrative; confirm approved ULS/SLS factor with engineer.
+    wearing_course_factor: float = 1.0
     soil_factor: float = 1.0
     surcharge_factor: float = 1.0
     cushion_factor: float = 1.0

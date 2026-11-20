@@ -18,6 +18,7 @@ from .geometry import calculate_geometry
 from .loads import calculate_preliminary_self_weight
 from .earth_pressure import (
     EarthPressureInputs,
+    TF_TO_KN,
     pressure_at_depth,
     design_note_reference_rows,
 )
@@ -58,9 +59,11 @@ def default_dead_load_sidl_rows(inputs: CulvertInputs) -> list[dict]:
         ('Bottom Slab', 1, l, w, inputs.bottom_slab_thickness_m, concrete, 'Rectangle', None),
         ('Side Wall', 2, l, inputs.wall_thickness_m, inputs.clear_height_m, concrete, 'Rectangle', None),
         ('Int. Wall', 1, l, inputs.internal_wall_thickness_m, inputs.clear_height_m, concrete, 'Rectangle', None),
-        # Source dead-load sheet uses 11.0 m effective length and 65 mm wearing
-        # course; the geometric parameter page uses 50 mm wearing coat instead.
-        ('Wearing Coat', 1, max(l - 1.0, 0.0), w, 0.065, wearing, 'Rectangle', None),
+        # Recompute wearing-coat depth from the design input. The reference
+        # dead-load sheet used 65 mm whereas the design-geometry input used
+        # 50 mm; do not freeze one source value into a variable-input table.
+        ('Wearing Coat', 1, max(l - 1.0, 0.0), w,
+         inputs.wearing_coat_thickness_m, wearing, 'Rectangle', None),
         ('Earth Cushion', 1, max(l - 1.0, 0.0), w, inputs.earth_cushion_m, soil, 'Rectangle', None),
         ('Crash Barrier', 2, w, inputs.ms_railing_width_m, 1.1, concrete, 'Area', 0.400),
         ('Parapet', 2, w, inputs.ms_railing_width_m, 0.3, concrete, 'Rectangle', None),
@@ -1096,6 +1099,130 @@ def calculate_live_frame_flexural_demands(inputs: CulvertInputs, frame_results: 
     return results
 
 
+
+
+def calculate_live_frame_shear_demands(inputs: CulvertInputs, frame_results: dict) -> list[dict]:
+    """Experimental ULS shears at the existing 16 design-section locations.
+
+    Recover local transverse shear from the actual FEM end actions, distributed
+    loads and individual wheel point loads. At concentrated loads and element
+    boundaries, consider BOTH sides of the discontinuity. This is a 2D
+    single-cell, 1-m-strip prototype, not an approved IRC design envelope.
+
+    Wall identification is explicitly provisional: '1st'=left and '2nd'=right
+    in the current 2D cross-section. The shear magnitude is not face-specific;
+    duplicate reinforcement faces elsewhere must not be treated as extra loads.
+    """
+    inputs.validate()
+    if not inputs.supports_single_cell_model:
+        raise ValueError('Live shear recovery requires the single-cell FEM model')
+    if not isinstance(frame_results, dict):
+        raise ValueError('A solved live FEM result is required for ULS shear demand')
+    actions = frame_results.get('member_end_actions')
+    profiles = frame_results.get('member_load_profiles')
+    if not actions or not profiles:
+        raise ValueError('Live FEM shear recovery requires element end actions AND load profiles')
+
+    start_actions = {}
+    end_actions = {}
+    for row in actions:
+        key = (row['member'], int(row['element']))
+        target = start_actions if row['end'] == 'start' else end_actions
+        if key in target:
+            raise ValueError('Duplicate element end action in live FEM')
+        target[key] = row
+    segments = {name: [] for name in ('Top slab', 'Bottom slab', 'Left wall', 'Right wall')}
+    for profile in profiles:
+        member = profile['member']
+        key = (member, int(profile['element']))
+        if member not in segments or key not in start_actions or key not in end_actions:
+            raise ValueError('Incomplete or unrecognized live FEM member action')
+        row = start_actions[key]
+        axis = 'x_m' if 'slab' in member else 'y_m'
+        x0 = float(row[axis])
+        length = float(profile['length_m'])
+        if length <= 0 or not math.isfinite(length):
+            raise ValueError('Invalid finite element length')
+        # Member end actions should balance the applied transverse loads;
+        # incorrect sign conventions or missing load profiles must fail loudly.
+        start_shear = float(row['shear_kn'])
+        applied_shear = 0.5*(float(profile['py_start_kn_per_m']) +
+                             float(profile['py_end_kn_per_m']))*length
+        applied_shear += sum(float(pt['py_kn']) for pt in profile.get('point_loads', []))
+        end_shear = float(end_actions[key]['shear_kn'])
+        if not math.isclose(start_shear+applied_shear, -end_shear,
+                            rel_tol=1e-6, abs_tol=1e-5):
+            raise ValueError('Inconsistent live FEM shear recovery and element forces')
+        segments[member].append((x0, x0 + length, start_shear, profile))
+
+    def shear_at_station(member: str, station: float) -> float:
+        candidates = []
+        for x0, x1, v0, prof in segments[member]:
+            if not (x0 - 1e-8 <= station <= x1 + 1e-8):
+                continue
+            L = x1 - x0
+            x = max(0.0, min(L, station - x0))
+            p0 = float(prof['py_start_kn_per_m'])
+            p1 = float(prof['py_end_kn_per_m'])
+            # V(x) = V(0) + integral_0^x q_y(t)dt + sum P_y.
+            base = v0 + p0*x + (p1-p0)*x*x/(2*L)
+            before = after = base
+            for item in prof.get('point_loads', []):
+                xp = float(item['fraction'])*L
+                py = float(item['py_kn'])
+                if xp < x - 1e-8:
+                    before += py
+                    after += py
+                elif abs(xp-x) <= 1e-8:
+                    after += py
+            candidates.extend((abs(before), abs(after)))
+        if not candidates or not all(math.isfinite(v) for v in candidates):
+            raise ValueError(f'Cannot recover FEM shear at {member}, {station:.4f} m')
+        return max(candidates)
+
+    span = inputs.clear_width_m + inputs.wall_thickness_m
+    rise = inputs.clear_height_m + 0.5 * (
+        inputs.top_slab_thickness_m + inputs.bottom_slab_thickness_m
+    )
+    # Recover shear at the *physical member face*, not at the frame
+    # centreline intersection. The frame mesh is centreline-based; the
+    # centreline joint is half a wall/slab thickness away from a face.
+    # Sampling at the joint overstated/understated several reference section
+    # actions and incorrectly labelled them as "Wall face"/"End Supp.".
+    slab_face = inputs.wall_thickness_m / 2
+    slab_haunch = min(span/2, slab_face + (inputs.haunch_width_m if inputs.haunch_count else 0))
+    top_face = rise - inputs.top_slab_thickness_m / 2
+    bottom_face = inputs.bottom_slab_thickness_m / 2
+    top_haunch = max(rise/2, top_face - (inputs.haunch_height_m if inputs.haunch_count else 0))
+    bottom_haunch = min(rise/2, bottom_face + (inputs.haunch_height_m if inputs.haunch_count else 0))
+    targets = [
+        [('Top slab',slab_face), ('Top slab',span-slab_face)],
+        [('Top slab',slab_haunch), ('Top slab',span-slab_haunch)],
+        [('Top slab',span/2)],
+        [('Bottom slab',slab_face), ('Bottom slab',span-slab_face)],
+        [('Bottom slab',slab_haunch), ('Bottom slab',span-slab_haunch)],
+        [('Bottom slab',span/2)],
+        [('Left wall',top_face)], [('Right wall',top_face)],
+        [('Left wall',top_haunch)], [('Right wall',top_haunch)],
+        [('Left wall',rise/2)], [('Right wall',rise/2)],
+        [('Left wall',bottom_face)], [('Right wall',bottom_face)],
+        [('Left wall',bottom_haunch)], [('Right wall',bottom_haunch)],
+    ]
+    # Only descriptive row identity comes from the existing schedule, never its forces.
+    labels = default_design_shear_rows()
+    if len(targets) != 16 or len(labels) != 16:
+        raise AssertionError('Live FEM and current 16-section shear table do not align')
+    answer = []
+    for label, places in zip(labels, targets):
+        magnitude_kn = max(shear_at_station(member, station) for member, station in places)
+        answer.append({
+            'Member': label['Member'], 'Location': label['Location'],
+            'Face': label['Face'], 'Total': magnitude_kn / TF_TO_KN,
+            'fem_locations': [f'{member} at {station:.4f} m' for member, station in places],
+        })
+    return answer
+
+
 def calculate_moving_vehicle_uls_envelope(
     inputs: CulvertInputs,
     *,
@@ -1165,20 +1292,20 @@ def calculate_moving_vehicle_uls_envelope(
             else:
                 positions=anchors
     best=[None]*len(_ULS_FLEXURAL_LINKS)
-    best_shear=[None]*len(_ULS_FLEXURAL_LINKS)
-    from .autoflow import calculate_live_shear_sections
+    best_shear=[None]*16
     for lead in positions:
         solved=run_frame_analysis(inputs,earth,braking,
                                   replace(vehicle,lead_axle_position_m=lead),combo,options)
         current=calculate_live_frame_flexural_demands(inputs,solved)
-        shears=calculate_live_shear_sections(inputs,solved)
-        for i,r in enumerate(shears):
-            if best_shear[i] is None or r['Total']>best_shear[i]['Total']+1e-11:
-                best_shear[i]={**r,'governing_lead_axle_position_m':lead}
+        shear_current=calculate_live_frame_shear_demands(inputs,solved)
+        for j, value in enumerate(shear_current):
+            if best_shear[j] is None or value['Total'] > best_shear[j]['Total']:
+                best_shear[j] = {**value, 'governing_lead_axle_position_m': lead}
         for i,r in enumerate(current):
             if best[i] is None or r['moment_tf_m_per_m']>best[i]['moment_tf_m_per_m']+1e-11:
                 best[i]={**r,'governing_lead_axle_position_m':lead}
     assert all(r is not None for r in best)
+    assert all(r is not None for r in best_shear)
     return {
         'rows':best,
         'shear_rows':best_shear,
@@ -1269,17 +1396,35 @@ def calculate_uls_flexural_strength(
             depth_mm=dc['rows'][dc_index][depth_field]*1000.0
             depth_basis='Excel design-constant schedule'
         else:
-            # One consistent geometric section-depth rule is shared by the
-            # live ULS flexural, ULS shear and SLS checks. No reference offsets.
-            from .autoflow import section_geometry_and_face
+            # Live mode uses the currently edited reinforcement bar diameter
+            # and correct face clear cover. Source Design Constants gives 170mm
+            # for the inner-wall midspan despite listing a 50mm inner cover;
+            # correct live geometrical depth is 250-50-10/2=195mm.
+            # Largest occupied bar is a conservative single-layer nominal size;
+            # multilayer bar centroid/cover must be verified by the designer.
             diameters=[bar_row.get(f'{steel_face} Bar-{k} (mm)')
                        for k in range(1,4 if steel_face=='Outer' else 3)]
             positive_diameters=[float(d) for d in diameters if d is not None and float(d)>0]
             if not positive_diameters:
-                raise ValueError(f'ULS row {ix+1}: no bar on the {steel_face.lower()} face')
+                raise ValueError(f'ULS row {ix+1}: no reinforcement bar exists on the {steel_face.lower()} face')
             diameter=max(positive_diameters)
-            _,depth_mm,_=section_geometry_and_face(inputs,ix,steel_face,diameter,materials)
-            depth_basis='Current thickness, geometry, clear cover and provided first-layer bar'
+            if component=='Top Slab':
+                cover=materials['top_slab_top_cover_mm'] if steel_face=='Outer' else materials['top_slab_bottom_cover_mm']
+            elif component=='Bottom Slab':
+                cover=materials['bottom_slab_cover_mm']
+            else:
+                cover=materials['side_wall_outer_cover_mm'] if steel_face=='Outer' else materials['side_wall_inner_cover_mm']
+            if 'haunch start' in depth_field:
+                total_depth_field='Total depth at haunch start (m)'
+            elif 'haunch end' in depth_field:
+                total_depth_field='Total depth at haunch end (m)'
+            else:
+                total_depth_field='Total depth at center (m)'
+            total_depth_mm=dc['rows'][dc_index][total_depth_field]*1000.0
+            depth_mm=total_depth_mm-cover-diameter/2.0
+            if depth_mm<=0:
+                raise ValueError(f'ULS row {ix+1}: cover and bar diameter leave no effective depth')
+            depth_basis='Live cover and current face bar (largest diameter as nominal outer layer)'
         if bar_row['Component'] != component:
             raise ValueError(f'Flexural R/F row {steel_index + 1} does not match {component}')
         computed = flexural_check(
@@ -1388,6 +1533,7 @@ def calculate_uls_shear_strength_table(
     inputs: CulvertInputs,
     *,
     shear_rows: list[dict] | None = None,
+    live_shear_rows: list[dict] | None = None,
     reinforcement_rows: list[dict] | None = None,
     constants: dict | None = None,
 ) -> dict:
@@ -1398,10 +1544,19 @@ def calculate_uls_shear_strength_table(
     These calculations compare capacity with *reference/edited* design shear:
     they are NOT a validated live-FEM ULS shear envelope or detailing approval.
     """
-    if shear_rows is not None and all('Total' in r for r in shear_rows):
-        forces=list(shear_rows)
+    if live_shear_rows is not None:
+        if shear_rows is not None:
+            raise ValueError('Choose live FEM shears OR a manually entered shear schedule')
+        if len(live_shear_rows) != 16:
+            raise ValueError('Exactly 16 live FEM shear section results are required')
+        forces = []
+        for row in live_shear_rows:
+            total = float(row['Total'])
+            if not math.isfinite(total) or total < 0:
+                raise ValueError('Invalid live FEM shear-force magnitude')
+            forces.append({**row, 'Total': total})
     else:
-        forces=calculate_design_shear_combinations(shear_rows)['rows']
+        forces = calculate_design_shear_combinations(shear_rows)['rows']
     steel = calculate_flexural_reinforcement(reinforcement_rows)['rows']
     dc = calculate_design_constants(inputs, constants)
     if not (len(forces) == len(steel) == len(_SHEAR_STRENGTH_LINKS) == 16):
@@ -1417,16 +1572,7 @@ def calculate_uls_shear_strength_table(
         member=expected_members[i]
         if force['Member'] != member or steel_row['Component'] != member:
             raise ValueError(f'Shear and reinforcement row {i + 1} do not match {member}')
-        # Current solved shears are carried as Total; use the selected current
-        # reinforcement face and its actual first-layer bar/cover, not the
-        # older fixed effective-depth assumptions.
-        if shear_rows is not None and all('Total' in x for x in shear_rows):
-            from .autoflow import section_geometry_and_face
-            steel_face = ('Inner' if i in (2,5) or (i>=6 and i%2==1) else 'Outer')
-            current_bar = float(steel_row[f'{steel_face} Bar-1 (mm)'])
-            _,d_mm,_ = section_geometry_and_face(inputs,i,steel_face,current_bar,dc['values'])
-        else:
-            d_mm=dc['rows'][dc_i][depth_col]*1000
+        d_mm=dc['rows'][dc_i][depth_col]*1000
         as_mm2=steel_row[f'Calculated {steel_face} (mm²/m)']
         shear_tf_m=abs(force['Total'])
         strength=shear_without_stirrups(
@@ -1454,8 +1600,9 @@ def calculate_uls_shear_strength_table(
         'columns': _SHEAR_STRENGTH_COLUMNS,
         'row_count':len(table),
         'required_count':sum(r['Shear Reinf. Requirement']=='Require' for r in table),
-        'shear_source':'Stage 3 edited/reference ULS shear-force components',
-        'status':'Source workbook arithmetic; engineering verification required',
+        'shear_source': ('Live experimental FEM shear envelope' if live_shear_rows is not None
+                         else 'Stage 3 manually edited/reference ULS shear-force components'),
+        'status':'Prototype shear capacity check; engineering verification required',
     }
 
 
