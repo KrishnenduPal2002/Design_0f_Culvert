@@ -1057,52 +1057,40 @@ with tab_calcs:
 
     with dead_load_tab:
         st.subheader("Dead Load and SIDL")
-        st.caption("Dead Load of Box — reference schedule in tonnes-force (t). Edit the dimensions and densities below.")
+        st.caption("Dead Load of Box — dimensions and densities are recomputed from the existing Design Inputs. Reference-only assumptions are retained where not defined by those inputs.")
 
-        # The editable rows are the source of truth for this subsection. The
-        # Quantity/Weight output below is recalculated immediately on changes.
+        # Automatically populate the existing 9-row, 8-column schedule from
+        # the ORIGINAL sidebar Design Inputs; no additional design fields.
+        # This retains the same member order, column order and reference
+        # assumptions as the current app. The calculation output below is
+        # recomputed on every Streamlit rerun.
         base_rows = default_dead_load_sidl_rows(inputs)
         editor_rows = [
             {**r, 'Area (m²)': r['Area (m²)'] if r['Area (m²)'] is not None else 0.0}
             for r in base_rows
         ]
-        edited_rows = st.data_editor(
-            editor_rows, key='dead_load_sidl_editor', hide_index=True,
-            use_container_width=True, num_rows='fixed', height=390,
-            disabled=['Member', 'Method'],
+        st.dataframe(
+            editor_rows, hide_index=True, use_container_width=True, height=390,
             column_config={
                 'Member': st.column_config.TextColumn('Member', width='medium'),
-                'Nos': st.column_config.NumberColumn('Nos', min_value=0, step=1, format='%d'),
-                'Length (m)': st.column_config.NumberColumn('Length (m)', min_value=0.0, format='%.3f'),
-                'Breadth (m)': st.column_config.NumberColumn('Breadth (m)', min_value=0.0, format='%.3f'),
-                'Height (m)': st.column_config.NumberColumn('Height (m)', min_value=0.0, format='%.3f'),
-                'Density (t/m³)': st.column_config.NumberColumn('Density (t/m³)', min_value=0.0, format='%.3f'),
+                'Nos': st.column_config.NumberColumn('Nos', format='%d'),
+                'Length (m)': st.column_config.NumberColumn('Length (m)', format='%.3f'),
+                'Breadth (m)': st.column_config.NumberColumn('Breadth (m)', format='%.3f'),
+                'Height (m)': st.column_config.NumberColumn('Height (m)', format='%.3f'),
+                'Density (t/m³)': st.column_config.NumberColumn('Density (t/m³)', format='%.3f'),
                 'Method': st.column_config.TextColumn('Method'),
-                'Area (m²)': st.column_config.NumberColumn('Area (m²)', min_value=0.0, format='%.3f'),
+                'Area (m²)': st.column_config.NumberColumn('Area (m²)', format='%.3f'),
             },
         )
-        if hasattr(edited_rows, 'to_dict'):
-            edited_rows = edited_rows.to_dict('records')
+        edited_rows = base_rows
 
-        p1, p2 = st.columns(2)
-        with p1:
-            ll_base_pressure = st.number_input(
-                'LL Base Pressure (t/m²)', min_value=0.0, value=0.50,
-                step=0.05, format='%.3f', key='dead_load_sidl_ll_pressure',
-            )
-        with p2:
-            base_area_default = (inputs.clear_width_m + 2.0 * inputs.wall_thickness_m) * inputs.length_m
-            use_area_from_geometry = st.checkbox(
-                'Calculate base slab area from current geometry', value=True,
-                key='dead_load_sidl_use_geom_area',
-            )
-            base_area_edit = None
-            if not use_area_from_geometry:
-                base_area_edit = st.number_input(
-                    'Base slab area (m²)', min_value=0.001,
-                    value=float(base_area_default), step=0.5,
-                    format='%.3f', key='dead_load_sidl_area_override',
-                )
+        # This source design assumes an LL base pressure of 0.50 t/m².
+        # It is NOT an input-derived vehicle bearing-pressure calculation.
+        ll_base_pressure = 0.50
+        base_area_edit = None  # Always recomputed from the current geometry.
+        st.caption('Base area comes from Design Inputs. LL base pressure 0.50 t/m² '
+                   'remains an explicit original-design assumption, pending '
+                   'an independent traffic-bearing-pressure calculation.')
         try:
             dead_load = calculate_dead_load_sidl(
                 inputs, edited_rows,
@@ -1134,7 +1122,7 @@ with tab_calcs:
                 st.write('**Reference comparison:** Total base pressure is below the entered safe bearing capacity.')
             else:
                 st.error('Total base pressure exceeds the entered safe bearing capacity.')
-            st.caption('Reference discrepancy: the Crash Barrier and Haunch rows use the editable Area (m²) '
+            st.caption('Reference discrepancy: the Crash Barrier and Haunch rows use the reference Area (m²) '
                        'column. Changing their displayed breadth/height alone will not change their weights.')
         except (ValueError, TypeError) as exc:
             st.error(f'Cannot calculate Dead Load and SIDL: {exc}')
@@ -1142,23 +1130,25 @@ with tab_calcs:
 
     with spring_constant_tab:
         st.subheader('Spring Constant')
-        st.caption('Calculation of spring constant — edit the effective widths below. '
-                   'The modulus of subgrade reaction comes from Stage 1 Basic Parameters.')
-        spring_inputs = st.data_editor(
-            default_spring_constant_rows(),
-            key='stage1_spring_constant_editor',
-            hide_index=True, use_container_width=True, num_rows='fixed',
-            disabled=['S.No.', 'Node No.'],
+        st.caption('Spring constant = input subgrade modulus × reference tributary width. '
+                   'Widths scale with the current bottom-slab total width; verify nodal tributaries against FEM meshing.')
+        # Input-only calculation: retain the reference four-node grouping.
+        # Reference tributary widths are proportional to the bottom-slab width;
+        # these are design-note schedule widths, not the FEM mesh springs.
+        reference_width_m = 3.50
+        current_width_m = inputs.total_width_m
+        spring_inputs = [
+            {**r, 'Eff. Width (m)': r['Eff. Width (m)'] * current_width_m / reference_width_m}
+            for r in default_spring_constant_rows()
+        ]
+        st.dataframe(
+            spring_inputs, hide_index=True, use_container_width=True,
             column_config={
                 'S.No.': st.column_config.NumberColumn('S.No.', format='%d'),
                 'Node No.': st.column_config.TextColumn('Node No.', width='large'),
-                'Eff. Width (m)': st.column_config.NumberColumn(
-                    'Eff. Width (m)', min_value=0.0, step=0.0025, format='%.4f'
-                ),
+                'Eff. Width (m)': st.column_config.NumberColumn('Eff. Width (m)', format='%.4f'),
             },
         )
-        if hasattr(spring_inputs, 'to_dict'):
-            spring_inputs = spring_inputs.to_dict('records')
         try:
             springs = calculate_spring_constants(inputs, spring_inputs)
             st.markdown('**Calculated spring constants**')
@@ -1178,9 +1168,9 @@ with tab_calcs:
             st.caption(f"Subgrade modulus: {springs['subgrade_reaction_modulus_tf_m3']:.2f} t/m³ · "
                        'Spring constant = Modulus × Effective width × 1 m strip.')
             st.caption('The source screenshot rounds the first two widths to 0.06 and 0.14 m. '
-                       'The precise editable defaults 0.0625 and 0.1375 m reproduce its '
-                       '62.50 and 137.50 t/m results. These node widths are not '
-                       'automatically derived from changed geometry or mapped to the FEM solver.')
+                       'The original precise widths 0.0625 and 0.1375 m reproduce its '
+                       '62.50 and 137.50 t/m results at 3.5 m width. Scaled widths '
+                       'are provisional and do not replace the mesh-specific FEM supports.')
         except (ValueError, TypeError) as exc:
             st.error(f'Cannot calculate Spring Constant: {exc}')
 
@@ -1264,12 +1254,12 @@ with temperature_calc_tab:
     with tcol1:
         temp_e = st.number_input('Concrete modulus Ec (t/m²)', min_value=1.0,
                                  value=3230000.0, step=1000.0, format='%.2e',
-                                 key='temperature_modulus_tf_m2')
+                                 key='temperature_modulus_tf_m2', disabled=True)
     with tcol2:
         temp_alpha = st.number_input('Thermal expansion coefficient α (1/°C)',
                                      min_value=0.0000001, value=0.000012,
                                      step=0.0000001, format='%.6f',
-                                     key='temperature_alpha_per_c')
+                                     key='temperature_alpha_per_c', disabled=True)
     st.caption(f'Average slab thickness h = {inputs.top_slab_thickness_m:.3f} m (Stage 1 Top Slab Thickness). '
                'Profile factor = 1 for rectangular and 0.5 for triangular regions.')
 
@@ -1285,19 +1275,19 @@ with temperature_calc_tab:
              'Profile': item['Profile'], 'Face': item['Face']}
             for item in base
         ]
-        edited = st.data_editor(
-            editable, key=f'temp_{mode}_editor', hide_index=True,
-            use_container_width=True, num_rows='fixed',
-            disabled=['Zone', 'Profile', 'Face'],
+        # Existing design inputs select the geometry. The source temperature
+        # profile remains a stated reference assumption, not an editable result.
+        ratio = inputs.top_slab_thickness_m / 0.25
+        edited = [{**item, 't (m)': item['t (m)'] * ratio} for item in editable]
+        st.dataframe(
+            edited, hide_index=True, use_container_width=True,
             column_config={
                 'Zone': st.column_config.TextColumn('S.No.', width='small'),
-                'ΔT (°C)': st.column_config.NumberColumn('ΔT (°C)', min_value=0.0, format='%.3f'),
-                'b (m)': st.column_config.NumberColumn('b (m)', min_value=0.0, format='%.4f'),
-                't (m)': st.column_config.NumberColumn('t (m)', min_value=0.0, format='%.4f'),
+                'ΔT (°C)': st.column_config.NumberColumn('ΔT (°C)', format='%.3f'),
+                'b (m)': st.column_config.NumberColumn('b (m)', format='%.4f'),
+                't (m)': st.column_config.NumberColumn('t (m)', format='%.4f'),
             },
         )
-        if hasattr(edited,'to_dict'):
-            edited = edited.to_dict('records')
         try:
             temp_rows=[]
             for row, original in zip(edited, base):
@@ -1344,17 +1334,17 @@ with temperature_calc_tab:
         uc1,uc2=st.columns(2)
         with uc1:
             max_air=st.number_input('Maximum shade air temperature (°C)',
-                value=42.2, step=0.1, format='%.2f', key='temp_air_max')
+                value=42.2, step=0.1, format='%.2f', key='temp_air_max', disabled=True)
             min_air=st.number_input('Minimum shade air temperature (°C)',
-                value=2.0, step=0.1, format='%.2f', key='temp_air_min')
+                value=2.0, step=0.1, format='%.2f', key='temp_air_min', disabled=True)
             creep_e=st.number_input('Concrete modulus considering creep (t/m²)',
                 value=1620000.0, min_value=1.0, step=1000.0,
-                format='%.2e', key='temp_creep_E')
+                format='%.2e', key='temp_creep_E', disabled=True)
         with uc2:
             bridge_max=st.number_input('Bridge temperature at restraint — Maximum (°C)',
-                value=32.1, step=0.1, format='%.2f', key='temp_restraint_max')
+                value=32.1, step=0.1, format='%.2f', key='temp_restraint_max', disabled=True)
             bridge_min=st.number_input('Bridge temperature at restraint — Minimum (°C)',
-                value=12.1, step=0.1, format='%.2f', key='temp_restraint_min')
+                value=12.1, step=0.1, format='%.2f', key='temp_restraint_min', disabled=True)
         try:
             uniform=calculate_uniform_temperature(
                 maximum_air_c=max_air, minimum_air_c=min_air,
@@ -1579,45 +1569,45 @@ with design_constants_calc_tab:
     with dc_material:
         st.markdown('**Material properties**')
         dc_fy = st.number_input('fᵧ — yield strength (MPa)', min_value=1.0,
-                                value=design_defaults['fy_mpa'], step=5.0, key='dc_fy')
+                                value=design_defaults['fy_mpa'], step=5.0, key='dc_fy', disabled=True)
         dc_fck = st.number_input('fck — concrete strength (MPa)', min_value=1.0,
-                                 value=design_defaults['fck_mpa'], step=5.0, key='dc_fck')
+                                 value=design_defaults['fck_mpa'], step=5.0, key='dc_fck', disabled=True)
         dc_es = st.number_input('Eₛ — steel modulus (GPa)', min_value=0.01,
-                                value=design_defaults['es_gpa'], step=1.0, key='dc_es')
+                                value=design_defaults['es_gpa'], step=1.0, key='dc_es', disabled=True)
         dc_ecm = st.number_input('Ecm — concrete modulus (GPa)', min_value=0.01,
-                                 value=design_defaults['ecm_gpa'], step=1.0, key='dc_ecm')
+                                 value=design_defaults['ecm_gpa'], step=1.0, key='dc_ecm', disabled=True)
         st.caption('Source references: Eₛ — Cl. 6.2.2, IRC:112-2020; '
                    'Ecm — Table 6.5, IRC:112-2020.')
     with dc_cover:
         st.markdown('**Clear Cover**')
         dc_top_bottom = st.number_input('Top Slab bottom cover (mm)', min_value=0.0,
                                         value=design_defaults['top_slab_bottom_cover_mm'],
-                                        step=5.0, key='dc_top_bottom')
+                                        step=5.0, key='dc_top_bottom', disabled=True)
         dc_top_top = st.number_input('Top Slab top cover (mm)', min_value=0.0,
                                      value=design_defaults['top_slab_top_cover_mm'],
-                                     step=5.0, key='dc_top_top')
+                                     step=5.0, key='dc_top_top', disabled=True)
         dc_bottom = st.number_input('Bottom Slab cover (mm)', min_value=0.0,
                                     value=design_defaults['bottom_slab_cover_mm'],
-                                    step=5.0, key='dc_bottom')
+                                    step=5.0, key='dc_bottom', disabled=True)
         dc_wall_outer = st.number_input('Side Wall Outer Face cover (mm)', min_value=0.0,
                                         value=design_defaults['side_wall_outer_cover_mm'],
-                                        step=5.0, key='dc_wall_outer')
+                                        step=5.0, key='dc_wall_outer', disabled=True)
         dc_wall_inner = st.number_input('Side Wall Inner Face cover (mm)', min_value=0.0,
                                         value=design_defaults['side_wall_inner_cover_mm'],
-                                        step=5.0, key='dc_wall_inner')
+                                        step=5.0, key='dc_wall_inner', disabled=True)
     with dc_reference:
         st.markdown('**Source reference constants**')
         dc_m = st.number_input('m — source modular ratio', min_value=0.01,
                                value=design_defaults['modular_ratio_reference'],
-                               step=0.01, format='%.2f', key='dc_m')
+                               step=0.01, format='%.2f', key='dc_m', disabled=True)
         dc_fctm = st.number_input('fctm — mean tensile strength (MPa)', min_value=0.01,
                                   value=design_defaults['fctm_mpa'], step=0.1,
-                                  key='dc_fctm')
+                                  key='dc_fctm', disabled=True)
         st.caption('fctm = 2.8 MPa is shown in the source for M35.')
         dc_extra = st.number_input('Extra depth at haunch start (m) — source',
                                    min_value=0.0,
                                    value=design_defaults['haunch_start_extra_depth_m'],
-                                   step=0.005, format='%.3f', key='dc_extra')
+                                   step=0.005, format='%.3f', key='dc_extra', disabled=True)
     try:
         design_values = {
             'fy_mpa': dc_fy, 'fck_mpa': dc_fck,
@@ -1667,6 +1657,7 @@ with design_constants_calc_tab:
 # Linked ULS flexural reference check, placed after Design Constants and
 # before Distribution Reinforcement. No solver/ULS design state is modified.
 uls_moving_envelope = None  # reused by ULS shear in this same Streamlit rerun
+uls_flexural_result = None  # only same-run computed ULS values may feed distribution
 with uls_flexural_strength_calc_tab:
     st.subheader('ULS Flexural Strength Check')
     st.markdown('**Check for strength (ULS : Basic Combination) (Max. Bending Moment)**')
@@ -1748,37 +1739,77 @@ with uls_flexural_strength_calc_tab:
     except (ValueError, TypeError, KeyError, IndexError) as exc:
         st.error(f'Cannot calculate ULS Flexural Strength Check: {exc}')
 
+
+
+def _automatic_distribution_rows(uls_rows):
+    """Derive the existing 10 transverse-steel rows from the 16 ULS flexural demands.
+
+    Index mappings reproduce the source design's top/bottom edge/mid and
+    wall earth/inner face choices. They are fixed section IDENTITIES, not
+    fixed engineering loads or required steel.
+    """
+    if not isinstance(uls_rows, (list, tuple)) or len(uls_rows) != 16:
+        raise ValueError('Automatic distribution requires all 16 ULS flexural rows')
+    # Top edges/midpoints, bottom edges/midpoints, wall earth/inner.
+    source_indices = (0, 2, 0, 2, 4, 5, 4, 5, 14, 11)
+    baseline = default_distribution_reinforcement_rows()
+    if len(baseline) != len(source_indices):
+        raise ValueError('Distribution table layout changed; expected 10 rows')
+    rows = []
+    for row_number, (template, uls_index) in enumerate(zip(baseline, source_indices), 1):
+        demand = uls_rows[uls_index].get('Ast Reqd. (mm²/m)')
+        if demand is None or not isinstance(demand, (float, int)) or not math.isfinite(demand) or demand < 0:
+            raise ValueError(
+                f'Distribution row {row_number}: linked ULS required steel is unavailable; '
+                'a reference value must not be substituted'
+            )
+        required = 0.20 * demand
+        diameter = float(template['Diameter (mm)'])
+        spacing = float(template['Spacing (mm)'])
+        if diameter <= 0 or spacing <= 0:
+            raise ValueError('Reference detailing template is invalid')
+        bar_area = math.pi * diameter**2 / 4.0
+        if required > bar_area * 1000 / spacing + 1e-9:
+            # Preserve the workbook's nominal bar diameter and maximum
+            # reference spacing, but reduce spacing on 5-mm increments when
+            # required steel increases. 50 mm is only a prototype stop
+            # condition; full clear-spacing/detailing limits need review.
+            spacing = 5.0 * math.floor((bar_area * 1000 / required + 1e-9) / 5.0)
+            if spacing < 50.0:
+                raise ValueError(
+                    f'Distribution row {row_number}: 8-mm bar spacing would be below 50 mm; '
+                    'automatic detailing needs an approved alternative diameter/arrangement'
+                )
+        rows.append({
+            **template,
+            'Required As (mm²/m)': required,
+            'Diameter (mm)': diameter,
+            'Spacing (mm)': spacing,
+        })
+    return rows
+
 with distribution_reinforcement_calc_tab:
     st.subheader('Distribution Reinforcement')
     st.markdown('**Transverse steel**')
-    st.caption('As per IRC:112-2020, Clause 16.6.1.1(3): for one-way slabs, '
-               'secondary transverse reinforcement should be at least 20% '
-               'of the main reinforcement.')
+    st.caption('Automatic from calculated ULS flexural demand: 20% of required main steel. '
+               'Reference: IRC:112-2020, Clause 16.6.1.1(3), subject to engineer verification.')
     st.latex(r'A_{s,\,provided}=\frac{\pi\,\phi^2}{4}\times\frac{1000}{s}\quad (\mathrm{mm}^2/\mathrm{m})')
 
-    if 'distribution_reinf_editor_version' not in st.session_state:
-        st.session_state['distribution_reinf_editor_version'] = 0
-    if st.button('Reset Distribution Reinforcement', key='distribution_reinf_reset'):
-        st.session_state['distribution_reinf_editor_version'] += 1
-
-    distribution_defaults = default_distribution_reinforcement_rows()
-    distribution_inputs = st.data_editor(
-        distribution_defaults,
-        key=f"distribution_reinf_editor_{st.session_state['distribution_reinf_editor_version']}",
-        hide_index=True, use_container_width=True, num_rows='fixed', height=420,
-        disabled=['Member', 'Surface', 'Position'],
-        column_config={
-            'Member': st.column_config.TextColumn('S.No. / Member', width='medium'),
-            'Surface': st.column_config.TextColumn('Surface', width='small'),
-            'Position': st.column_config.TextColumn('Location', width='small'),
-            'Required As (mm²/m)': st.column_config.NumberColumn('Aₛₜ Reqd. (mm²/m)', format='%.3f'),
-            'Diameter (mm)': st.column_config.NumberColumn('Dia (mm)', format='%.1f'),
-            'Spacing (mm)': st.column_config.NumberColumn('Spacing (mm)', format='%.1f'),
-        },
-    )
-    if hasattr(distribution_inputs, 'to_dict'):
-        distribution_inputs = distribution_inputs.to_dict('records')
     try:
+        if uls_flexural_result is None:
+            raise ValueError('Live ULS flexural demands are unavailable; distribution demand cannot be computed')
+        distribution_inputs = _automatic_distribution_rows(uls_flexural_result['rows'])
+        st.dataframe(
+            distribution_inputs, hide_index=True, use_container_width=True, height=420,
+            column_config={
+                'Member': st.column_config.TextColumn('S.No. / Member', width='medium'),
+                'Surface': st.column_config.TextColumn('Surface', width='small'),
+                'Position': st.column_config.TextColumn('Location', width='small'),
+                'Required As (mm²/m)': st.column_config.NumberColumn('Aₛₜ Reqd. (mm²/m)', format='%.3f'),
+                'Diameter (mm)': st.column_config.NumberColumn('Dia (mm)', format='%.1f'),
+                'Spacing (mm)': st.column_config.NumberColumn('Spacing (mm)', format='%.1f'),
+            },
+        )
         distribution_result = calculate_distribution_reinforcement(distribution_inputs)
         st.markdown('**Calculated Distribution Reinforcement — Steel Provided and Check**')
         st.dataframe(
@@ -1797,11 +1828,11 @@ with distribution_reinforcement_calc_tab:
         )
         passed = distribution_result['pass_count']
         st.write(f'**Checks:** {passed} OK / {distribution_result["row_count"]} rows')
-        st.caption('The required steel areas are editable references from the supplied design schedule. '
-                   'OK means calculated steel provided ≥ entered required steel; it does not '
-                   'independently verify the 20% main-reinforcement ratio, maximum spacing, '
-                   'anchorage, or other code requirements. This table is not automatically '
-                   'connected to the ULS design or BBS modules.')
+        st.caption('Required transverse steel is automatically 20% of the linked 16-row ULS '
+                   'required main steel at the corresponding sections. Reference 8-mm bars and '
+                   'nominal spacings are retained, with spacing reduced on 5-mm increments when '
+                   'necessary. This does not replace structural verification of ULS demands, '
+                   'bar development, spacing limits or full IRC detailing.')
     except (ValueError, TypeError) as exc:
         st.error(f'Cannot calculate Distribution Reinforcement: {exc}')
 
@@ -1820,60 +1851,48 @@ with uls_shear_strength_calc_tab:
         missing = [name for name in required if _uls_linked_inputs.get(name) is None]
         if missing:
             st.error('The shear check needs valid inputs from: '+', '.join(missing))
-        elif edited_shear_rows is None:
-            st.error('Please correct the ULS shear-force inputs in the Design Moment subsection.')
+        elif frame_results is None:
+            st.error('Automatic ULS shear requires a solved FEM model for the active Design Inputs. '
+                     'Enable the in-app FEM and choose a supported vehicle preset. '
+                     'Reference PDF shears will not be silently substituted.')
         else:
-            # Restore the ORIGINAL reference/edited ULS shears: no experimental FEM
-            # values are used by this subsection.
+            # The identical ULS scan/result used by Flexural Strength Check also
+            # supplies the 16 shear design sections. Re-use its cached envelope;
+            # do not launch a second incompatible FEM scan inside this tab.
+            # If vehicle scanning is off, recover the 16 section shears directly
+            # from the current (single-position) solved frame.
+            # A single-position FEM result is NOT a governing ULS shear envelope.
+            # The design-note table is a Normal + LL *envelope*, not one load case.
+            if not scan_vehicle_uls:
+                raise ValueError(
+                    'ULS design shear requires the moving-vehicle envelope. '
+                    'Enable "Scan axle positions for ULS flexural moment envelope" '
+                    'in Stage 4B. One FEM vehicle position is not the design-note '
+                    'ULS Basic Combination (Max. Shear Force).'
+                )
+            if uls_moving_envelope is None:
+                raise ValueError(
+                    'The moving-load ULS envelope was not computed. '
+                    'Cannot substitute single-position or fixed PDF shear values.'
+                )
+            automatic_shear_rows = uls_moving_envelope['shear_rows']
+            shear_method = 'Experimental moving-vehicle FEM shear envelope'
+            if len(automatic_shear_rows) != 16:
+                raise ValueError('Automatic ULS shear must produce the original 16 design sections')
+
             shear_strength = calculate_uls_shear_strength_table(
                 inputs,
-                shear_rows=edited_shear_rows,
+                live_shear_rows=automatic_shear_rows,
                 reinforcement_rows=_uls_linked_inputs['Flexural R/F'],
                 constants=_uls_linked_inputs['Design Constants'],
             )
-            from src.uls_design import shear_without_stirrups
-
-            editable_numeric = (
-                'Reinforcement (mm²/m)',
-                'Effective Depth Provided (mm)',
-                'Design Shear (t/m)',
-            )
-            if 'uls_shear_strength_manual_values' not in st.session_state:
-                st.session_state['uls_shear_strength_manual_values'] = {}
-            if 'uls_shear_strength_editor_version' not in st.session_state:
-                st.session_state['uls_shear_strength_editor_version'] = 0
-            if st.button('Reset ULS Shear Strength', key='uls_shear_strength_reset'):
-                st.session_state['uls_shear_strength_manual_values'] = {}
-                st.session_state['uls_shear_strength_editor_version'] += 1
-
-            manual_values = st.session_state['uls_shear_strength_manual_values']
-            dc_shear = calculate_design_constants(
-                inputs, _uls_linked_inputs['Design Constants']
-            )
-            fck_shear = dc_shear['values']['fck_mpa']
-            original_rows = shear_strength['rows']
-            rebuilt_rows = []
-            for i, original_row in enumerate(original_rows):
-                row = dict(original_row)
-                for field, value in manual_values.get(i, {}).items():
-                    if field in editable_numeric:
-                        row[field] = float(value)
-                resistance = shear_without_stirrups(
-                    design_shear_tf_per_m=float(row['Design Shear (t/m)']),
-                    provided_as_mm2_per_m=float(row['Reinforcement (mm²/m)']),
-                    effective_depth_mm=float(row['Effective Depth Provided (mm)']),
-                    fck_mpa=fck_shear,
-                )
-                row['ρl = As/(bw d)'] = resistance['longitudinal_rho']
-                row['k'] = resistance['k']
-                row['Vmin (t/m)'] = resistance['v_min_tf_per_m']
-                row['VRdc (t/m)'] = resistance['v_rdc_tf_per_m']
-                row['VRd w/o shear reinf. (t/m)'] = resistance['resistance_tf_per_m']
-                row['Shear Reinf. Requirement'] = (
-                    'Require' if resistance['stirrups_required'] else 'Not Require'
-                )
-                rebuilt_rows.append(row)
-
+            if len(shear_strength['rows']) != 16 or len(shear_strength['columns']) != 12:
+                raise ValueError('The original PDF shear table requires 16 rows and 12 columns')
+            st.caption(shear_method + '. Design shear, reinforcement, effective depth, '
+                       'shear resistance and stirrup requirement update from the active '
+                       'Design Inputs and linked reinforcement selections. This FEM '
+                       'envelope remains unverified against the design-note PDF and '
+                       'must not be used for final engineering approval.')
             numeric_columns = {
                 'Reinforcement (mm²/m)': '%.2f',
                 'Effective Depth Provided (mm)': '%.0f',
@@ -1884,22 +1903,12 @@ with uls_shear_strength_calc_tab:
                 'VRd w/o shear reinf. (t/m)': '%.3f',
                 'Design Shear (t/m)': '%.3f',
             }
-            st.caption('Edit Reinforcement, Effective Depth Provided, or Design Shear '
-                       'directly below. The other values and Require / Not Require '
-                       'are calculated from those entries. Uses the original '
-                       'reference-based shear-force schedule, not experimental FEM.')
-            updated = st.data_editor(
+            st.dataframe(
                 [{column: row[column] for column in shear_strength['columns']}
-                 for row in rebuilt_rows],
-                key=f"uls_shear_strength_editor_{st.session_state['uls_shear_strength_editor_version']}",
-                use_container_width=True, hide_index=True, height=675,
-                num_rows='fixed',
-                disabled=[column for column in shear_strength['columns']
-                          if column not in editable_numeric],
+                 for row in shear_strength['rows']],
+                hide_index=True, use_container_width=True, height=675,
                 column_config={
-                    **{col: st.column_config.NumberColumn(
-                          col, format=fmt, min_value=(0.01 if col == 'Effective Depth Provided (mm)' else 0.0),
-                          required=True)
+                    **{col: st.column_config.NumberColumn(col, format=fmt)
                        for col, fmt in numeric_columns.items()},
                     'Component': st.column_config.TextColumn('Component', width='small'),
                     'Section': st.column_config.TextColumn('Section', width='medium'),
@@ -1907,42 +1916,6 @@ with uls_shear_strength_calc_tab:
                     'Shear Reinf. Requirement': st.column_config.TextColumn(
                         'Shear Reinf. Requirement', width='medium'),
                 },
-            )
-            if hasattr(updated, 'to_dict'):
-                updated = updated.to_dict('records')
-            if len(updated) != 16:
-                raise ValueError('The original 16 ULS shear sections must remain unchanged.')
-
-            # Each edit is committed to separate session state and the editor is
-            # refreshed once, so dependent *columns in the same table* update.
-            # Only edited input fields are persisted; material/geometry changes
-            # continue to refresh all calculated values.
-            next_manual = {}
-            changed = False
-            for i, (updated_row, current_row, original_row) in enumerate(
-                    zip(updated, rebuilt_rows, original_rows)):
-                changes = {}
-                for field in editable_numeric:
-                    value = float(updated_row[field])
-                    if not math.isfinite(value) or value < 0 or (
-                            field == 'Effective Depth Provided (mm)' and value <= 0):
-                        raise ValueError(f'Row {i + 1}: {field} must be a valid positive/nonnegative value')
-                    if not math.isclose(value, float(original_row[field]),
-                                        rel_tol=0, abs_tol=1e-9):
-                        changes[field] = value
-                    if not math.isclose(value, float(current_row[field]),
-                                        rel_tol=0, abs_tol=1e-9):
-                        changed = True
-                if changes:
-                    next_manual[i] = changes
-            if changed:
-                st.session_state['uls_shear_strength_manual_values'] = next_manual
-                st.session_state['uls_shear_strength_editor_version'] += 1
-                st.rerun()
-
-            shear_strength['rows'] = rebuilt_rows
-            shear_strength['required_count'] = sum(
-                row['Shear Reinf. Requirement'] == 'Require' for row in rebuilt_rows
             )
 
             # Shear reinforcement design immediately follows the preceding

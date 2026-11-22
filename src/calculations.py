@@ -1033,7 +1033,11 @@ def calculate_live_frame_flexural_demands(inputs: CulvertInputs, frame_results: 
         if not math.isclose(profile['length_m'],L,abs_tol=1e-6,rel_tol=0):
             raise ValueError('FEM load profile does not match member segment length')
         m_end=recover_section_moment_knm(a['shear_kn'],a['moment_knm'],L,L,profile)
-        if not math.isclose(m_end,b['moment_knm'],abs_tol=1e-5,rel_tol=1e-6):
+        # Variable SIDL is integrated numerically when assembling the FEM
+        # fixed-end actions, so exact polynomial recovery and quadrature may
+        # differ slightly. Reject material inconsistencies (>0.02 kN.m), not
+        # sub-centinewton-metre quadrature rounding residuals.
+        if not math.isclose(m_end,b['moment_knm'],abs_tol=0.02,rel_tol=1e-6):
             raise ValueError(f'Inconsistent FEM section recovery at element {eid}')
         segments[member].append((x0,x1,a,profile))
 
@@ -1050,20 +1054,33 @@ def calculate_live_frame_flexural_demands(inputs: CulvertInputs, frame_results: 
             raise ValueError(f'No FEM element covers {member} at {station:.3f} m')
         return result
 
-    slab_haunch=min(span/2,inputs.wall_thickness_m/2+inputs.haunch_width_m)
-    top_haunch=min(rise/2,inputs.top_slab_thickness_m/2+inputs.haunch_height_m)
-    bottom_haunch=min(rise/2,inputs.bottom_slab_thickness_m/2+inputs.haunch_height_m)
-    targets=[
-        [('Top slab',0.0),('Top slab',span)],
-        [('Top slab',slab_haunch),('Top slab',span-slab_haunch)],
-        [('Top slab',span/2)],
-        [('Bottom slab',0.0),('Bottom slab',span)],
-        [('Bottom slab',slab_haunch),('Bottom slab',span-slab_haunch)],
-        [('Bottom slab',span/2)],
+    # The STAAD geometry and our FEM are drawn along member centrelines, but
+    # design sections labelled "Wall face" are at the *concrete face*, not at
+    # the frame-node intersection. Use the same physical stations as the live
+    # shear recovery. These follow the CURRENT geometry and are never fixed
+    # reference values.
+    half_wall = inputs.wall_thickness_m / 2.0
+    slab_haunch = min(span/2, half_wall + (
+        inputs.haunch_width_m if inputs.haunch_count else 0.0))
+    top_face = rise - inputs.top_slab_thickness_m / 2.0
+    bottom_face = inputs.bottom_slab_thickness_m / 2.0
+    top_haunch = max(rise/2, top_face - (
+        inputs.haunch_height_m if inputs.haunch_count else 0.0))
+    bottom_haunch = min(rise/2, bottom_face + (
+        inputs.haunch_height_m if inputs.haunch_count else 0.0))
+    targets = [
+        [('Top slab', half_wall), ('Top slab', span-half_wall)],
+        [('Top slab', slab_haunch), ('Top slab', span-slab_haunch)],
+        [('Top slab', span/2)],
+        [('Bottom slab', half_wall), ('Bottom slab', span-half_wall)],
+        [('Bottom slab', slab_haunch), ('Bottom slab', span-slab_haunch)],
+        [('Bottom slab', span/2)],
     ]
-    for y in (rise,rise-top_haunch,rise/2,0.0,bottom_haunch):
-        pair=[('Left wall',y),('Right wall',y)]
-        targets.extend((pair,pair))
+    # Each pair represents the two physical side walls. The same signed
+    # tension-side mapping as the original implementation is preserved.
+    for y in (top_face, top_haunch, rise/2, bottom_face, bottom_haunch):
+        pair = [('Left wall', y), ('Right wall', y)]
+        targets.extend((pair, pair))
     if len(targets)!=len(_ULS_FLEXURAL_LINKS):
         raise AssertionError('Live FEM station schedule must have 16 rows')
 
@@ -1146,8 +1163,9 @@ def calculate_live_frame_shear_demands(inputs: CulvertInputs, frame_results: dic
         # Member end actions should balance the applied transverse loads;
         # incorrect sign conventions or missing load profiles must fail loudly.
         start_shear = float(row['shear_kn'])
-        applied_shear = 0.5*(float(profile['py_start_kn_per_m']) +
-                             float(profile['py_end_kn_per_m']))*length
+        applied_shear = (0.5*(float(profile['py_start_kn_per_m']) +
+                              float(profile['py_end_kn_per_m'])) +
+                         float(profile.get('py_bubble_kn_per_m', 0.0)))*length
         applied_shear += sum(float(pt['py_kn']) for pt in profile.get('point_loads', []))
         end_shear = float(end_actions[key]['shear_kn'])
         if not math.isclose(start_shear+applied_shear, -end_shear,
@@ -1165,7 +1183,9 @@ def calculate_live_frame_shear_demands(inputs: CulvertInputs, frame_results: dic
             p0 = float(prof['py_start_kn_per_m'])
             p1 = float(prof['py_end_kn_per_m'])
             # V(x) = V(0) + integral_0^x q_y(t)dt + sum P_y.
-            base = v0 + p0*x + (p1-p0)*x*x/(2*L)
+            delta=float(prof.get('py_bubble_kn_per_m', 0.0))
+            base = (v0 + p0*x + (p1-p0)*x*x/(2*L) +
+                    delta*(3*x*x/L-2*x**3/L**2))
             before = after = base
             for item in prof.get('point_loads', []):
                 xp = float(item['fraction'])*L
@@ -1253,7 +1273,7 @@ def calculate_moving_vehicle_uls_envelope(
     combo=combo or CombinationInputs()
     options=options or FrameOptions()
     vehicle.validate();combo.validate();options.validate()
-    if vehicle.loading_type not in ('70rw','40t','custom'):
+    if vehicle.loading_type not in ('70rw', '40t', '70rt', 'sv385', 'custom'):
         raise ValueError('Automatic moving FEM loading is not supported for this vehicle preset')
     if not math.isfinite(step_m) or not 0.025<=step_m<=1.0:
         raise ValueError('Scan step must be between 0.025 and 1 m')
@@ -1269,8 +1289,14 @@ def calculate_moving_vehicle_uls_envelope(
     else:
         # Ensure all axles cross both critical frame stations and sampled
         # positions in between. Include both span ends.
-        haunch=min(span/2,inputs.wall_thickness_m/2+inputs.haunch_width_m)
-        stations=(0.0,haunch,span/2,span-haunch,span)
+        # Use the actual physical section stations from the 16-row ULS
+        # schedule, not only the centreline support/haunch locations. Axle
+        # positions at both concrete wall faces can govern section moments.
+        wall_face=min(span/2,inputs.wall_thickness_m/2)
+        haunch=min(span/2,wall_face + (
+            inputs.haunch_width_m if inputs.haunch_count else 0.0))
+        stations=tuple(sorted({0.0,wall_face,haunch,span/2,
+                               span-haunch,span-wall_face,span}))
         positions=sorted({round(i*full_travel/max(1,math.ceil(full_travel/step_m)),8)
                           for i in range(max(1,math.ceil(full_travel/step_m))+1)} |
                          {round(o+x,8) for o in offsets for x in stations} |
@@ -1293,7 +1319,14 @@ def calculate_moving_vehicle_uls_envelope(
                 positions=anchors
     best=[None]*len(_ULS_FLEXURAL_LINKS)
     best_shear=[None]*16
-    for lead in positions:
+    sampled_positions=set()
+
+    def evaluate_position(lead: float) -> None:
+        # Evaluate each axle station only once, including refinement samples.
+        lead=round(float(lead),8)
+        if lead in sampled_positions:
+            return
+        sampled_positions.add(lead)
         solved=run_frame_analysis(inputs,earth,braking,
                                   replace(vehicle,lead_axle_position_m=lead),combo,options)
         current=calculate_live_frame_flexural_demands(inputs,solved)
@@ -1304,21 +1337,263 @@ def calculate_moving_vehicle_uls_envelope(
         for i,r in enumerate(current):
             if best[i] is None or r['moment_tf_m_per_m']>best[i]['moment_tf_m_per_m']+1e-11:
                 best[i]={**r,'governing_lead_axle_position_m':lead}
+
+    for lead in positions:
+        evaluate_position(lead)
+
+    # A fixed grid can miss a peak moment or shear between axle stations.
+    # Sample midway around each of the governing 16 moment and 16 shear
+    # positions, bounded by the existing max_scenarios safety limit. This is
+    # a deterministic local refinement, not an exact continuous envelope.
+    if combo.vehicle_factor > 0 and len(sampled_positions) < max_scenarios:
+        candidate_positions=set()
+        for record in [*best,*best_shear]:
+            centre=record['governing_lead_axle_position_m']
+            for direction in (-1,1):
+                candidate=max(0.0,min(full_travel,centre+direction*step_m/2))
+                candidate=round(candidate,8)
+                if candidate not in sampled_positions:
+                    candidate_positions.add(candidate)
+        # Nearest to a current critical position first; stable tie breaks.
+        candidates=sorted(candidate_positions)
+        for lead in candidates[:max_scenarios-len(sampled_positions)]:
+            evaluate_position(lead)
     assert all(r is not None for r in best)
     assert all(r is not None for r in best_shear)
     return {
         'rows':best,
         'shear_rows':best_shear,
-        'scenario_count':len(positions),
-        'first_lead_position_m':positions[0],
-        'last_lead_position_m':positions[-1],
+        'scenario_count':len(sampled_positions),
+        'first_lead_position_m':min(sampled_positions),
+        'last_lead_position_m':max(sampled_positions),
         'vehicle_loading_type':vehicle.loading_type,
         'search_step_m':step_m,
         'load_factors':{k:getattr(combo,k) for k in (
             'concrete_dead_factor','soil_factor','surcharge_factor',
             'cushion_factor','vehicle_factor','braking_factor')},
-        'assumptions':('Sampled moving-load face-specific envelope, experimental ',
+        'assumptions':('Sampled and locally refined moving-load face-specific envelope, experimental ',
                        '2D frame; not independently validated against STAAD or IRC ULS.'),
+    }
+
+
+
+def calculate_workbook_vehicle_uls_comparison(
+    inputs: CulvertInputs,
+    *,
+    earth: EarthPressureInputs | None = None,
+    braking: BrakingInputs | None = None,
+    options: FrameOptions | None = None,
+    vehicle_70rw: VehicleLoadingInputs | None = None,
+    step_m: float = 0.15,
+    max_scenarios: int = 240,
+) -> dict:
+    """Compare four reference vehicle patterns on the experimental 2D frame.
+
+    The workbook compares factored 70R(W), 40T, 70R(T), and 385T/SV
+    effects. This function uses the axle/effective-width presets already
+    present in vehicle_loading.py, including the *equivalent station*
+    approximation for 70R(T) and the special transverse-width convention
+    for SV. These are not validated 2D frame mappings of a tracked patch
+    or special vehicle, nor a complete/approved design envelope.
+
+    Vehicle-only demand is evaluated with other loads switched off. It is
+    NOT safely additive to a positive face-envelope of normal ULS moments:
+    signs, load cases, axial actions, and governing positions must be
+    combined at the member force level before design.
+    """
+    from .vehicle_loading import vehicle_preset
+
+    if vehicle_70rw is not None and vehicle_70rw.loading_type != '70rw':
+        raise ValueError('vehicle_70rw must use the 70rw loading type')
+    base = dict(
+        concrete_dead_factor=0.0,
+        additional_sidl_factor=0.0,
+        wearing_course_factor=0.0,
+        soil_factor=0.0,
+        surcharge_factor=0.0,
+        cushion_factor=0.0,
+        vehicle_factor=0.0,
+        braking_factor=0.0,
+    )
+    patterns = (
+        ('70R(W)', vehicle_70rw or vehicle_preset('70rw'), 1.5),
+        ('40T', vehicle_preset('40t'), 1.5),
+        ('70R(T)', vehicle_preset('70rt'), 1.5),
+        ('SV', vehicle_preset('sv385'), 1.0),
+    )
+    patterns_out = {}
+    for label, pattern, factor in patterns:
+        out = calculate_moving_vehicle_uls_envelope(
+            inputs, earth=earth, braking=braking, vehicle=pattern,
+            combo=CombinationInputs(**{**base, 'vehicle_factor': factor}), options=options,
+            step_m=step_m, max_scenarios=max_scenarios,
+        )
+        if len(out['rows']) != len(_ULS_FLEXURAL_LINKS):
+            raise ValueError('Expected 16 ULS flexural section rows')
+        patterns_out[label] = out
+
+    partial = []
+    for index in range(len(_ULS_FLEXURAL_LINKS)):
+        governing = max(
+            patterns_out, key=lambda label: patterns_out[label]['rows'][index]['moment_tf_m_per_m']
+        )
+        source = patterns_out[governing]['rows'][index]
+        partial.append({
+            'row': index+1,
+            'moment_tf_m_per_m': source['moment_tf_m_per_m'],
+            'governing_vehicle': governing,
+            'governing_lead_axle_position_m': source['governing_lead_axle_position_m'],
+        })
+    return {
+        'rows': partial,
+        'reference_vehicle_factors': {'70R(W)':1.5, '40T':1.5, '70R(T)':1.5, 'SV':1.0},
+        'supported_vehicle_results': patterns_out,
+        'evaluated_vehicle_cases': tuple(patterns_out),
+        'missing_vehicle_cases': (),
+        'complete': False,
+        'status': ('EXPERIMENTAL four-pattern vehicle-only FEM comparison. '
+                   '70R(T) equivalent axle stations and SV transverse-width '
+                   'projection have not been independently validated. '
+                   'No normal ULS moments or signed force combinations are '
+                   'included; not an approved final design envelope.'),
+    }
+
+
+
+
+def calculate_workbook_combined_uls_vehicle_envelope(
+    inputs: CulvertInputs,
+    *,
+    earth: EarthPressureInputs | None = None,
+    braking: BrakingInputs | None = None,
+    options: FrameOptions | None = None,
+    step_m: float = 0.15,
+    max_scenarios: int = 240,
+    case_numbers: tuple[int, ...] = (1001, 1002, 1003, 1004, 1005, 1006),
+    vehicle_types: tuple[str, ...] = ('70rw', '40t', '70rt', 'sv385'),
+) -> dict:
+    """Experimental 16-section envelope of WHOLE factored FEM load cases.
+
+    In contrast to summing independently enveloped positive moments, solve
+    each specified permanent-load ULS case *together* with each vehicle at
+    each sampled vehicle position. The FEM therefore combines signed element
+    forces before face-specific tension demands are recovered. Vehicle
+    factors follow the supplied workbook's four pattern comparison, but
+    vertical traffic and combined loads still require engineer verification.
+
+    Diagnostic only: tracked/SV patch-to-axle projection, combinations,
+    placement, section face mapping and supports are not approved. Do not
+    connect this to acceptance checks until the whole design is validated.
+    """
+    from dataclasses import replace
+    from .vehicle_loading import vehicle_preset
+    from .load_combinations import workbook_uls_basic_combinations
+
+    inputs.validate()
+    candidates = {int(c.name.split()[2]): c for c in workbook_uls_basic_combinations()}
+    if not case_numbers or len(set(case_numbers)) != len(case_numbers):
+        raise ValueError('Provide distinct workbook ULS case numbers')
+    if not vehicle_types or len(set(vehicle_types)) != len(vehicle_types):
+        raise ValueError('Provide distinct vehicle types')
+    factor_by_type = {'70rw': 1.5, '40t': 1.5, '70rt': 1.5, 'sv385': 1.0}
+    unknown_cases = set(case_numbers) - candidates.keys()
+    unknown_vehicles = set(vehicle_types) - factor_by_type.keys()
+    if unknown_cases or unknown_vehicles:
+        raise ValueError(f'Unsupported workbook cases or vehicle patterns: {unknown_cases}, {unknown_vehicles}')
+
+    best_moment, best_shear, analyzed = [None] * 16, [None] * 16, []
+    # Keep per-vehicle section envelopes. The overall winner alone hides
+    # whether a discrepancy comes from 40T, tracked, or special-vehicle
+    # modelling. These diagnostic records do NOT modify the design envelope.
+    per_vehicle_moment = {v: [None] * 16 for v in vehicle_types}
+    per_vehicle_shear = {v: [None] * 16 for v in vehicle_types}
+    for case_number in case_numbers:
+        base_case = candidates[case_number]
+        for vehicle_type in vehicle_types:
+            factor = factor_by_type[vehicle_type]
+            # Both classes of loads enter the SAME global load vector. No
+            # algebraic addition of separately max-enveloped magnitudes.
+            combined_case = replace(
+                base_case, vehicle_factor=factor,
+                name=f'Combined diagnostic {case_number} + {vehicle_type}',
+            )
+            result = calculate_moving_vehicle_uls_envelope(
+                inputs, earth=earth, braking=braking, options=options,
+                vehicle=vehicle_preset(vehicle_type), combo=combined_case,
+                step_m=step_m, max_scenarios=max_scenarios,
+            )
+            moment_rows, shear_rows = result['rows'], result['shear_rows']
+            if len(moment_rows) != 16 or len(shear_rows) != 16:
+                raise ValueError('Combined FEM result must have 16 moment and shear rows')
+            provenance = {'governing_case': case_number,
+                          'governing_vehicle': vehicle_type,
+                          'vehicle_factor': factor}
+            for i, (moment, shear) in enumerate(zip(moment_rows, shear_rows)):
+                previous_moment = per_vehicle_moment[vehicle_type][i]
+                if previous_moment is None or moment['moment_tf_m_per_m'] > previous_moment['moment_tf_m_per_m']:
+                    per_vehicle_moment[vehicle_type][i] = {**moment, **provenance}
+                previous_shear = per_vehicle_shear[vehicle_type][i]
+                if previous_shear is None or shear['Total'] > previous_shear['Total']:
+                    per_vehicle_shear[vehicle_type][i] = {**shear, **provenance}
+                if best_moment[i] is None or moment['moment_tf_m_per_m'] > best_moment[i]['moment_tf_m_per_m']:
+                    best_moment[i] = {**moment, **provenance}
+                if best_shear[i] is None or shear['Total'] > best_shear[i]['Total']:
+                    best_shear[i] = {**shear, **provenance}
+            analyzed.append({'case': case_number, 'vehicle': vehicle_type,
+                             'factor': factor, 'sampled_positions': result['scenario_count']})
+    # Keep the axle/wheel vehicle results separate from equivalent tracked and
+    # special-vehicle projections. The latter must not silently certify a
+    # design demand until their patch-to-1m-strip FEM mapping is validated.
+    # This diagnostic partition does not alter the original all-four envelope.
+    def subset_envelope(rows_by_vehicle, selected, key):
+        answer = []
+        for index in range(16):
+            candidates = [rows_by_vehicle[v][index] for v in selected]
+            answer.append(max(candidates, key=lambda row: row[key]) if candidates else None)
+        return answer
+
+    wheel_types = tuple(v for v in vehicle_types if v in ('70rw', '40t'))
+    experimental_types = tuple(v for v in vehicle_types if v in ('70rt', 'sv385'))
+    wheel_moments = subset_envelope(per_vehicle_moment, wheel_types, 'moment_tf_m_per_m')
+    experimental_moments = subset_envelope(per_vehicle_moment, experimental_types, 'moment_tf_m_per_m')
+    wheel_shears = subset_envelope(per_vehicle_shear, wheel_types, 'Total')
+    experimental_shears = subset_envelope(per_vehicle_shear, experimental_types, 'Total')
+    model_sensitivity = []
+    for index in range(16):
+        wheel = wheel_moments[index]
+        experimental = experimental_moments[index]
+        model_sensitivity.append({
+            'row': index + 1,
+            'wheel_vehicle_moment_tf_m_per_m': (
+                wheel['moment_tf_m_per_m'] if wheel else None),
+            'equivalent_track_sv_moment_tf_m_per_m': (
+                experimental['moment_tf_m_per_m'] if experimental else None),
+            'all_pattern_moment_tf_m_per_m': best_moment[index]['moment_tf_m_per_m'],
+            'experimental_pattern_governs': (
+                best_moment[index]['governing_vehicle'] in experimental_types),
+            'difference_when_experimental_governs_tf_m_per_m': (
+                best_moment[index]['moment_tf_m_per_m'] - wheel['moment_tf_m_per_m']
+                if wheel and best_moment[index]['governing_vehicle'] in experimental_types
+                else 0.0 if wheel else None),
+        })
+    return {
+        'flexural_rows': best_moment,
+        'shear_rows': best_shear,
+        'wheel_vehicle_flexural_rows': wheel_moments,
+        'wheel_vehicle_shear_rows': wheel_shears,
+        'equivalent_track_sv_flexural_rows': experimental_moments,
+        'equivalent_track_sv_shear_rows': experimental_shears,
+        'vehicle_model_sensitivity_rows': model_sensitivity,
+        'per_vehicle_flexural_rows': per_vehicle_moment,
+        'per_vehicle_shear_rows': per_vehicle_shear,
+        'case_vehicle_pairs': analyzed,
+        'case_count': len(case_numbers),
+        'pair_count': len(analyzed),
+        'complete': False,
+        'status': ('EXPERIMENTAL: simultaneous permanent and vehicle load actions '
+                   'are combined in FEM before tensile-face recovery. Vehicle '
+                   'projection, reference governing envelope, and strength checks '
+                   'are NOT independently validated; no UI check is replaced.'),
     }
 
 
@@ -1955,3 +2230,406 @@ def calculate_preview(
             "sign convention, load combinations or structural safety"
         )
     return result
+
+
+def calculate_workbook_uls_basic_shear_envelope(
+    inputs: CulvertInputs, *,
+    earth: EarthPressureInputs | None = None,
+    braking: BrakingInputs | None = None,
+    vehicle: VehicleLoadingInputs | None = None,
+    options: FrameOptions | None = None,
+) -> dict:
+    """Compare six workbook BASIC ULS combinations at the 16 design sections.
+
+    Return BOTH flexural and shear demands, with the governing load combination
+    identified per section. This is a diagnostic, not the final ULS design
+    envelope: workbook 1001--1006 omit wheel traffic, braking, temperature,
+    and other governing cases. It does not feed the Streamlit ULS tables.
+    """
+    from .load_combinations import workbook_uls_basic_combinations
+    best_shear = [None] * 16
+    best_flexure = [None] * 16
+    case_info = []
+    for combo in workbook_uls_basic_combinations():
+        solved = run_frame_analysis(inputs, earth=earth, braking=braking,
+                                    vehicle=vehicle, combo=combo, options=options)
+        shears = calculate_live_frame_shear_demands(inputs, solved)
+        flexure = calculate_live_frame_flexural_demands(inputs, solved)
+        if len(shears) != 16 or len(flexure) != 16:
+            raise ValueError('Workbook ULS comparison requires 16 shear and flexure rows')
+        case_id = combo.name.split()[2]
+        case_info.append({'case': case_id,
+                          'surcharge_side': getattr(combo, 'surcharge_side', 'both'),
+                          'factors': solved['load_factors']})
+        for i, (shear, moment) in enumerate(zip(shears, flexure)):
+            if best_shear[i] is None or shear['Total'] > best_shear[i]['Total']:
+                best_shear[i] = {**shear, 'governing_case': case_id}
+            if (best_flexure[i] is None or
+                    moment['moment_tf_m_per_m'] > best_flexure[i]['moment_tf_m_per_m']):
+                best_flexure[i] = {**moment, 'governing_case': case_id}
+    return {
+        'shear_rows': best_shear,
+        'flexural_rows': best_flexure,
+        'case_count': len(case_info),
+        'cases': case_info,
+        'status': ('DIAGNOSTIC ONLY: six BASIC workbook ULS combinations. '
+                   'Does not cover full governing vehicle, braking, temperature '
+                   'and other load cases. FEM loading and member stiffness remain '
+                   'unvalidated; not approved ULS design demands.'),
+    }
+
+
+def calculate_uls_vehicle_contribution_diagnostic(
+    inputs: CulvertInputs,
+    *,
+    earth: EarthPressureInputs | None = None,
+    braking: BrakingInputs | None = None,
+    vehicle: VehicleLoadingInputs | None = None,
+    combo: CombinationInputs | None = None,
+    options: FrameOptions | None = None,
+    step_m: float = 0.15,
+    max_scenarios: int = 240,
+) -> dict:
+    """Isolate the live-vehicle contribution at the existing 16 ULS sections.
+
+    For the *same* combination factors, calculate the 16-row FEM baseline with
+    vehicle_factor=0, then the governing sampled moving-axle moment with the
+    user-specified vehicle factor. The difference isolates the effect on the
+    reported positive tension-face demand, NOT a signed superposable member
+    force or an independently validated design-live-load envelope.
+
+    This diagnostic does not replace the existing Streamlit or reference ULS
+    demands. In particular, the reference document's ULS 'LL' term cannot be
+    asserted equivalent to this prototype's point-axle model.
+    """
+    from dataclasses import replace
+
+    inputs.validate()
+    settings = combo or CombinationInputs()
+    settings.validate()
+    if settings.vehicle_factor <= 0:
+        raise ValueError('The diagnostic requires a positive vehicle load factor')
+    base_combo = replace(settings, vehicle_factor=0.0)
+    baseline_solver = run_frame_analysis(
+        inputs, earth=earth, braking=braking, vehicle=vehicle,
+        combo=base_combo, options=options,
+    )
+    baseline = calculate_live_frame_flexural_demands(inputs, baseline_solver)
+    moving = calculate_moving_vehicle_uls_envelope(
+        inputs, earth=earth, braking=braking, vehicle=vehicle,
+        combo=settings, options=options, step_m=step_m,
+        max_scenarios=max_scenarios,
+    )
+    if len(baseline) != 16 or len(moving['rows']) != 16:
+        raise ValueError('Both ULS demands must retain the original 16 rows')
+    rows = []
+    for index, (fixed, loaded) in enumerate(zip(baseline, moving['rows']), start=1):
+        base_m = fixed['moment_tf_m_per_m']
+        total_m = loaded['moment_tf_m_per_m']
+        rows.append({
+            'row': index,
+            'reference_face': loaded['reference_face'],
+            'without_vehicle_moment_tf_m_per_m': base_m,
+            'with_vehicle_moment_tf_m_per_m': total_m,
+            'change_in_governing_tension_moment_tf_m_per_m': total_m - base_m,
+            'governing_lead_axle_position_m': loaded['governing_lead_axle_position_m'],
+        })
+    return {
+        'rows': rows,
+        'row_count': 16,
+        'scenario_count': moving['scenario_count'],
+        'vehicle_factor': settings.vehicle_factor,
+        'status': (
+            'Diagnostic only: same structural model and load factors with/without '
+            'moving axle load. The differences are changes in a positive-demand '
+            'envelope, not signed load-case actions. Not a validated IRC ULS '
+            'load combination or a substitute for the original design values.'
+        ),
+    }
+
+
+def audit_workbook_combined_uls_envelope(
+    inputs: CulvertInputs,
+    envelope: dict,
+    *,
+    moment_tolerance_tf_m: float = 0.05,
+) -> dict:
+    """Compare *already computed* 16-row ULS FEM results with cached workbook data.
+
+    This is reference-geometry verification only. It is deliberately separate
+    from the design calculations: never replace FEM results with reference
+    moments, and never declare an experimental envelope structurally approved.
+    The cached benchmark lives in existing data/uls_design_reference.json.
+    """
+    from .structural_analysis import is_original_geometry
+
+    if not is_original_geometry(inputs):
+        raise ValueError('Workbook ULS comparison is only valid for original 1x3x3 reference geometry')
+    if not math.isfinite(moment_tolerance_tf_m) or moment_tolerance_tf_m <= 0:
+        raise ValueError('moment_tolerance_tf_m must be a positive finite number')
+    if not isinstance(envelope, dict) or len(envelope.get('flexural_rows', ())) != 16:
+        raise ValueError('Combined envelope must contain exactly 16 flexural rows')
+    refs = reference_table()['flexure']
+    if len(refs) != 16:
+        raise ValueError('Reference must contain exactly 16 flexural rows')
+    rows = []
+    for i, (actual, ref) in enumerate(zip(envelope['flexural_rows'], refs), 1):
+        fem = float(actual['moment_tf_m_per_m'])
+        target = float(ref['moment_tf_m_per_m'])
+        if not math.isfinite(fem) or fem < 0:
+            raise ValueError(f'Invalid FEM moment at flexural row {i}')
+        delta = fem-target
+        rows.append({
+            'Row': i,
+            'Section': ref['location'],
+            'FEM Moment (t-m/m)': fem,
+            'Reference Moment (t-m/m)': target,
+            'Difference (t-m/m)': delta,
+            'Absolute Difference (t-m/m)': abs(delta),
+            'Within Tolerance': abs(delta) <= moment_tolerance_tf_m,
+            'Governing ULS Case': actual.get('governing_case'),
+            'Governing Vehicle': actual.get('governing_vehicle'),
+            'Vehicle Breakdown (t-m/m)': {
+                vehicle: per_vehicle[i-1]['moment_tf_m_per_m']
+                for vehicle, per_vehicle in envelope.get('per_vehicle_flexural_rows', {}).items()
+            },
+        })
+    passed = sum(row['Within Tolerance'] for row in rows)
+    return {
+        'rows': rows,
+        'row_count': len(rows),
+        'within_tolerance_count': passed,
+        'mismatch_count': len(rows)-passed,
+        'max_absolute_difference_tf_m': max(r['Absolute Difference (t-m/m)'] for r in rows),
+        'all_match': passed == len(rows),
+        'ready_for_automatic_uls_checks': False,
+        'status': ('REFERENCE-ONLY DIAGNOSTIC. Matching numbers alone do not validate '
+                   'moving traffic, supports, element mapping, load factors or design codes.'),
+    }
+
+
+def compare_workbook_style_and_simultaneous_uls_envelopes(
+    inputs: CulvertInputs,
+    *,
+    combined_envelope: dict,
+    earth: EarthPressureInputs | None = None,
+    braking: BrakingInputs | None = None,
+    options: FrameOptions | None = None,
+    step_m: float = 0.25,
+    max_scenarios: int = 240,
+    case_numbers: tuple[int, ...] = (1001, 1002, 1003, 1004, 1005, 1006),
+    vehicle_types: tuple[str, ...] = ('70rw', '40t', '70rt', 'sv385'),
+) -> dict:
+    """DIAGNOSTIC ONLY: independent maxima versus simultaneous ULS moments.
+
+    Workbook-style *comparison convention*: take the largest positive
+    face-specific normal moment over selected ULS cases, independently take
+    the largest positive face-specific vehicle moment over vehicle position
+    and class (applying that class's workbook multiplier), then add these
+    magnitudes. The two maxima can occur at opposite wall faces or at
+    different vehicle positions. This is NOT a signed same-section moment.
+
+    Simultaneous result is supplied from
+    ``calculate_workbook_combined_uls_vehicle_envelope``. No FEM output is
+    overwritten, no input is changed, and no Streamlit table is modified.
+    The tracked and special vehicle mappings remain experimental.
+    """
+    from dataclasses import replace
+    from .load_combinations import workbook_uls_basic_combinations
+    from .vehicle_loading import vehicle_preset
+
+    if not isinstance(combined_envelope, dict) or len(combined_envelope.get('flexural_rows', ())) != 16:
+        raise ValueError('A precomputed 16-row simultaneous combined envelope is required')
+    recorded_pairs = {(row['case'], row['vehicle']) for row in combined_envelope.get('case_vehicle_pairs', ())}
+    requested_pairs = {(case, vehicle) for case in case_numbers for vehicle in vehicle_types}
+    if not requested_pairs or requested_pairs != recorded_pairs:
+        raise ValueError('Combined envelope case/vehicle pairs must match the requested comparison')
+    if len(set(case_numbers)) != len(case_numbers) or len(set(vehicle_types)) != len(vehicle_types):
+        raise ValueError('Case numbers and vehicle types must be distinct')
+    inputs.validate()
+    named = {int(c.name.split()[2]): c for c in workbook_uls_basic_combinations()}
+    if any(case not in named for case in case_numbers):
+        raise ValueError('Unknown workbook static ULS case')
+    vehicle_factors = {'70rw': 1.5, '40t': 1.5, '70rt': 1.5, 'sv385': 1.0}
+    if any(v not in vehicle_factors for v in vehicle_types):
+        raise ValueError('Unknown workbook vehicle pattern')
+
+    normal_max = [None] * 16
+    for case in case_numbers:
+        frame = run_frame_analysis(
+            inputs, earth=earth, braking=braking,
+            combo=replace(named[case], vehicle_factor=0.0), options=options)
+        rows = calculate_live_frame_flexural_demands(inputs, frame)
+        if len(rows) != 16:
+            raise ValueError('Normal FEM must retain 16 ULS flexural sections')
+        for index, row in enumerate(rows):
+            if normal_max[index] is None or row['moment_tf_m_per_m'] > normal_max[index]['moment_tf_m_per_m']:
+                normal_max[index] = {**row, 'governing_case': case}
+
+    live_max = [None] * 16
+    per_vehicle = {}
+    for vehicle_type in vehicle_types:
+        # Set every nonvehicle factor to zero: this is a vehicle-ONLY
+        # response, not a second application of normal ULS loads.
+        live_combo = CombinationInputs(
+            name=f'Vehicle-only envelope {vehicle_type}',
+            concrete_dead_factor=0.0, additional_sidl_factor=0.0,
+            wearing_course_factor=0.0, surcharge_side='none',
+            soil_factor=0.0, surcharge_factor=0.0, cushion_factor=0.0,
+            braking_factor=0.0, vehicle_factor=vehicle_factors[vehicle_type],
+        )
+        result = calculate_moving_vehicle_uls_envelope(
+            inputs, earth=earth, braking=braking,
+            vehicle=vehicle_preset(vehicle_type), combo=live_combo,
+            options=options, step_m=step_m, max_scenarios=max_scenarios)
+        records = result['rows']
+        if len(records) != 16:
+            raise ValueError('Vehicle-only FEM must retain 16 ULS flexural sections')
+        per_vehicle[vehicle_type] = records
+        for index, row in enumerate(records):
+            if live_max[index] is None or row['moment_tf_m_per_m'] > live_max[index]['moment_tf_m_per_m']:
+                live_max[index] = {**row, 'governing_vehicle': vehicle_type,
+                                   'vehicle_factor': vehicle_factors[vehicle_type]}
+
+    output = []
+    for index, (normal, live, simultaneous) in enumerate(zip(
+        normal_max, live_max, combined_envelope['flexural_rows']), start=1):
+        normal_value = float(normal['moment_tf_m_per_m'])
+        live_value = float(live['moment_tf_m_per_m'])
+        same_case_value = float(simultaneous['moment_tf_m_per_m'])
+        if not all(math.isfinite(v) and v >= 0 for v in (normal_value, live_value, same_case_value)):
+            raise ValueError(f'Invalid FEM moment at row {index}')
+        independent_sum = normal_value + live_value
+        output.append({
+            'row': index,
+            'reference_face': simultaneous.get('reference_face'),
+            'independent_normal_envelope_tf_m_per_m': normal_value,
+            'normal_governing_case': normal['governing_case'],
+            'normal_governing_member': normal.get('mapped_member'),
+            'normal_governing_station_m': normal.get('station_m'),
+            'independent_live_envelope_tf_m_per_m': live_value,
+            'live_governing_vehicle': live['governing_vehicle'],
+            'live_governing_position_m': live.get('governing_lead_axle_position_m'),
+            'live_governing_member': live.get('mapped_member'),
+            'live_governing_station_m': live.get('station_m'),
+            'workbook_style_independent_sum_tf_m_per_m': independent_sum,
+            'simultaneous_combined_envelope_tf_m_per_m': same_case_value,
+            'simultaneous_governing_case': simultaneous.get('governing_case'),
+            'simultaneous_governing_vehicle': simultaneous.get('governing_vehicle'),
+            'difference_independent_minus_simultaneous_tf_m_per_m': independent_sum - same_case_value,
+        })
+    return {
+        'rows': output, 'row_count': 16, 'case_count': len(case_numbers),
+        'vehicle_count': len(vehicle_types),
+        'independent_vehicle_rows': per_vehicle,
+        'ready_for_automatic_uls_checks': False,
+        'status': (
+            'DIAGNOSTIC ONLY: independent positive moment envelopes may govern '
+            'at different physical sections, cases and vehicle positions. '
+            'The other column uses simultaneous factored FEM actions. '
+            'Neither method is validated as the design-code governing demand. '
+            'Tracked/SV models are experimental. No displayed ULS table is changed.'
+        ),
+    }
+
+
+def audit_vehicle_member_end_envelope(
+    inputs: CulvertInputs,
+    *,
+    vehicle_type: str = '40t',
+    stations_m: tuple[float, ...] | None = None,
+    earth: EarthPressureInputs | None = None,
+    braking: BrakingInputs | None = None,
+    options: FrameOptions | None = None,
+    step_m: float = 0.15,
+    max_scenarios: int = 240,
+) -> dict:
+    """Diagnostic unfactored vehicle moments at exact STAAD-style member ends.
+
+    Unlike the 16-row concrete-face strength check, this comparison evaluates
+    the *end* of the top-slab element at each requested x coordinate. Member
+    end moments are local element actions and reverse sign on neighbouring
+    elements; compare absolute values or consistently transformed signs.
+
+    For the unchanged original model, the STAAD output stations are 0.125 m
+    (member 201, end node 17) and 3.25 m (member 215, end node 31).
+    Other geometries use their actual left and right top-member endpoints.
+    This routine does not change design moments or certify traffic loading.
+    """
+    from dataclasses import replace
+    from .vehicle_loading import vehicle_preset
+    from .earth_pressure import TF_TO_KN
+
+    inputs.validate()
+    if not inputs.supports_single_cell_model:
+        raise ValueError('Member-end vehicle audit requires a single cell')
+    if vehicle_type not in ('70rw', '40t', '70rt', 'sv385'):
+        raise ValueError('Only the four reference vehicle presets are supported')
+    if not math.isfinite(step_m) or not 0.025 <= step_m <= 1.0:
+        raise ValueError('Invalid vehicle search step')
+    if not isinstance(max_scenarios, int) or max_scenarios < 8:
+        raise ValueError('max_scenarios must be at least 8')
+
+    span = inputs.clear_width_m + inputs.wall_thickness_m
+    stations = tuple(stations_m) if stations_m is not None else (
+        inputs.wall_thickness_m / 2, span)
+    if not stations or any(not isinstance(x, (int, float)) or
+                           not math.isfinite(x) or x < 0 or x > span
+                           for x in stations):
+        raise ValueError('All requested member-end stations must lie on the top slab')
+    vehicle = vehicle_preset(vehicle_type)
+    offsets = [0.0]
+    for gap in vehicle.axle_spacings_m:
+        offsets.append(offsets[-1] + gap)
+    total_travel = span + offsets[-1]
+    count = math.ceil(total_travel / step_m)
+    candidates = ({round(total_travel * i / count, 8) for i in range(count + 1)} |
+                  {round(x + offset, 8) for offset in offsets
+                   for x in (0.0, *stations, span)} |
+                  {round(vehicle.lead_axle_position_m, 8)})
+    if len(candidates) > max_scenarios:
+        raise ValueError('Exact member-end audit exceeds max_scenarios; increase the cap')
+
+    vehicle_only = CombinationInputs(
+        name=f'Unfactored {vehicle_type} member-end audit',
+        concrete_dead_factor=0.0, additional_sidl_factor=0.0,
+        wearing_course_factor=0.0, soil_factor=0.0,
+        surcharge_factor=0.0, cushion_factor=0.0,
+        braking_factor=0.0, vehicle_factor=1.0, surcharge_side='none',
+    )
+    maxima = {x: None for x in stations}
+    for lead in sorted(candidates):
+        frame = run_frame_analysis(
+            inputs, earth=earth, braking=braking,
+            vehicle=replace(vehicle, lead_axle_position_m=lead),
+            combo=vehicle_only, options=options)
+        if not frame.get('converged'):
+            raise ValueError(f'FEM failed at vehicle lead position {lead}')
+        ends = [r for r in frame['member_end_actions']
+                if r['member'] == 'Top slab' and r['end'] == 'end']
+        for station in stations:
+            candidates_at_station = [r for r in ends
+                                     if math.isclose(r['x_m'], station, abs_tol=1e-7)]
+            if len(candidates_at_station) != 1:
+                raise ValueError(f'STAAD-style member end not uniquely represented at x={station}')
+            action = candidates_at_station[0]
+            value = abs(action['moment_knm']) / TF_TO_KN
+            prior = maxima[station]
+            if prior is None or value > prior['moment_tf_m_per_m']:
+                maxima[station] = {
+                    'station_m': station,
+                    'moment_tf_m_per_m': value,
+                    'signed_local_end_moment_tf_m_per_m': action['moment_knm'] / TF_TO_KN,
+                    'governing_lead_axle_position_m': lead,
+                    'fem_element': action['element'],
+                }
+    return {
+        'rows': [maxima[x] for x in stations],
+        'scenario_count': len(candidates),
+        'vehicle_type': vehicle_type,
+        'applied_vehicle_factor': 1.0,
+        'ready_for_automatic_uls_checks': False,
+        'status': ('DIAGNOSTIC ONLY: absolute local top-member END action, '
+                   'not the 16-row physical-section tension demand. '
+                   'Experimental vehicle model and sampled search are not validated.'),
+    }

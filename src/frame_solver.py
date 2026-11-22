@@ -103,32 +103,70 @@ def _point_local(L: float, r: float, px:float=0, py:float=0, mz:float=0) -> np.n
 
 
 def _build_mesh(inputs: CulvertInputs, options: FrameOptions):
-    span=inputs.clear_width_m+inputs.wall_thickness_m  # model centreline, NOT outer clear width
-    rise=inputs.clear_height_m+0.5*(inputs.top_slab_thickness_m+inputs.bottom_slab_thickness_m)
-    n=options.mesh_divisions_per_member
-    nodes=[]; lookup={}; elements=[]; groups={key:[] for key in ("Bottom slab","Right wall","Top slab","Left wall")}
+    """Build a centreline mesh aligned to wall faces and haunch boundaries.
+
+    For the reference 1x3x3 geometry at the default mesh resolution, the
+    bottom-slab stations reproduce the 15 supports in the STAAD workbook.
+    Other dimensions use the same geometric rules; this is not an override
+    with fixed member coordinates or structural analysis results.
+    """
+    span = inputs.clear_width_m + inputs.wall_thickness_m
+    rise = inputs.clear_height_m + 0.5 * (
+        inputs.top_slab_thickness_m + inputs.bottom_slab_thickness_m
+    )
+    # The workbook's bottom and top slab have different internal subdivisions.
+    # Further mesh refinement preserves each physical face/haunch station.
+    refinement = max(1, math.ceil(options.mesh_divisions_per_member / 8))
+    half_wall = inputs.wall_thickness_m / 2.0
+    lower_haunch = half_wall + (inputs.haunch_width_m if inputs.haunch_count else 0.0)
+    upper_haunch = lower_haunch
+
+    def slab_stations(interior_count: int) -> list[float]:
+        left, right = lower_haunch, span - upper_haunch
+        segments = [0.0, half_wall, left]
+        segments += [left + (right-left)*j / interior_count
+                     for j in range(1, interior_count + 1)]
+        segments += [span-half_wall, span]
+        # Enforce a consistent mesh even when no haunch is modelled.
+        return sorted(set(round(v, 12) for v in segments))
+
+    bottom_stations = slab_stations(10 * refinement)
+    top_stations = slab_stations(11 * refinement)
+    lower = inputs.bottom_slab_thickness_m / 2.0
+    upper = inputs.top_slab_thickness_m / 2.0
+    haunch_h = inputs.haunch_height_m if inputs.haunch_count else 0.0
+    wall_stations = [0.0, lower, lower+haunch_h, rise/2,
+                     rise-upper-haunch_h, rise-upper, rise]
+    wall_stations = sorted(set(round(v, 12) for v in wall_stations))
+    if refinement > 1:
+        wall_stations = sorted(set(round(x0+(x1-x0)*j/refinement, 12)
+                                   for x0,x1 in zip(wall_stations,wall_stations[1:])
+                                   for j in range(refinement+1)))
+
+    nodes=[];lookup={};elements=[]
+    groups={key:[] for key in ('Bottom slab','Right wall','Top slab','Left wall')}
     def node(x,y):
         key=(round(x,10),round(y,10))
         if key not in lookup:
             lookup[key]=len(nodes);nodes.append((x,y))
         return lookup[key]
-    def member(name,p0,p1,t):
-        for i in range(n):
-            r0,r1=i/n,(i+1)/n
-            x0=p0[0]*(1-r0)+p1[0]*r0;y0=p0[1]*(1-r0)+p1[1]*r0
-            x1=p0[0]*(1-r1)+p1[0]*r1;y1=p0[1]*(1-r1)+p1[1]*r1
-            a=node(x0,y0);b=node(x1,y1)
-            dx=x1-x0;dy=y1-y0
-            item={"id":len(elements),"member":name,"a":a,"b":b,"length":math.hypot(dx,dy),
-                  "thickness":t,"dofs":[3*a,3*a+1,3*a+2,3*b,3*b+1,3*b+2],
-                  "T":_transform(dx,dy)}
+    def member(name,stations,horizontal,constant,t):
+        for lo,hi in zip(stations,stations[1:]):
+            x0,y0=(lo,constant) if horizontal else (constant,lo)
+            x1,y1=(hi,constant) if horizontal else (constant,hi)
+            a=node(x0,y0); b=node(x1,y1)
+            dx,dy=x1-x0,y1-y0
+            item={'id':len(elements),'member':name,'a':a,'b':b,
+                  'length':math.hypot(dx,dy),'thickness':t,
+                  'dofs':[3*a,3*a+1,3*a+2,3*b,3*b+1,3*b+2],
+                  'T':_transform(dx,dy)}
             elements.append(item);groups[name].append(item['id'])
-    member("Bottom slab",(0,0),(span,0),inputs.bottom_slab_thickness_m)
-    member("Right wall",(span,0),(span,rise),inputs.wall_thickness_m)
-    member("Top slab",(0,rise),(span,rise),inputs.top_slab_thickness_m)
-    member("Left wall",(0,0),(0,rise),inputs.wall_thickness_m)
-    bottom_nodes=[(i,coords[0]) for i,coords in enumerate(nodes) if abs(coords[1])<1e-9]
-    bottom_nodes.sort(key=lambda v:v[1])
+    member('Bottom slab',bottom_stations,True,0.0,inputs.bottom_slab_thickness_m)
+    member('Right wall',wall_stations,False,span,inputs.wall_thickness_m)
+    member('Top slab',top_stations,True,rise,inputs.top_slab_thickness_m)
+    member('Left wall',wall_stations,False,0.0,inputs.wall_thickness_m)
+    bottom_nodes=sorted(((i,coords[0]) for i,coords in enumerate(nodes)
+                         if abs(coords[1])<1e-9),key=lambda x:x[1])
     return np.array(nodes,dtype=float),elements,groups,bottom_nodes,span,rise
 
 
@@ -153,7 +191,9 @@ def recover_section_moment_knm(
     p0=float(profile['py_start_kn_per_m'])
     p1=float(profile['py_end_kn_per_m'])
     value=(-float(start_moment_knm)+float(start_shear_kn)*x +
-           p0*x*x/2 + (p1-p0)*x**3/(6*L))
+           p0*x*x/2 + (p1-p0)*x**3/(6*L) +
+           float(profile.get('py_bubble_kn_per_m', 0.0)) *
+           (x**3/L-x**4/(2*L**2)))
     for load in profile.get('point_loads', []):
         xp=float(load['fraction'])*L
         if x + 1e-9 >= xp:
@@ -191,23 +231,17 @@ def _element_section_extrema(
     edges = sorted(set([0.0, L] + [min(L,max(0.,x)) for x,_,_ in pts]))
     # Derivative of section moment on each load-free interval:
     # V(x) = v0 + p0*x + ((p1-p0)/(2L))*x^2 + sum(P_i left of x).
-    a = (p1-p0)/(2*L)
-    candidates = set(edges)
+    delta=float(profile.get('py_bubble_kn_per_m', 0.0))
+    a=(p1-p0)/(2*L)
+    candidates=set(edges)
     for xlo,xhi in zip(edges,edges[1:]):
-        active_load = sum(py for xp,py,_ in pts if xp <= xlo+1e-10)
-        c = v0+active_load
-        if abs(a) < 1e-12:
-            roots = [-c/p0] if abs(p0)>1e-12 else []
-        else:
-            disc = p0*p0-4*a*c
-            if disc < 0:
-                roots=[]
-            else:
-                sqrt_d=math.sqrt(max(disc,0.))
-                roots=[(-p0+sqrt_d)/(2*a),(-p0-sqrt_d)/(2*a)]
-        for r in roots:
-            if xlo <= r <= xhi:
-                candidates.add(r)
+        active_load=sum(py for xp,py,_ in pts if xp <= xlo+1e-10)
+        coeffs=[-2*delta/L**2, a+3*delta/L, p0, v0+active_load]
+        while len(coeffs)>1 and abs(coeffs[0])<1e-12:
+            coeffs.pop(0)
+        for root in np.roots(coeffs):
+            if abs(root.imag)<1e-9 and xlo <= root.real <= xhi:
+                candidates.add(float(root.real))
 
     largest_m = (-1., 0.)
     largest_v = (-1., 0.)
@@ -221,7 +255,7 @@ def _element_section_extrema(
         for value in (m_right,m_left):
             if abs(value)>largest_m[0]:largest_m=(abs(value),x)
 
-        base_v=v0+p0*x+a*x*x
+        base_v=v0+p0*x+a*x*x+delta*(3*x*x/L-2*x**3/L**2)
         v_right=base_v+sum(py for xp,py,_ in pts if xp<=x+1e-9)
         v_left=v_right-sum(py for py,_ in coincident)
         for value in (v_left,v_right):
@@ -268,13 +302,13 @@ def run_frame_analysis(
         kg=e['T'].T@kl@e['T']
         ids=e['dofs'];K[np.ix_(ids,ids)] += kg
 
-    compnames=("concrete_dead","wearing_course","soil","surcharge","cushion","vehicle","braking")
+    compnames=("concrete_dead","additional_sidl","wearing_course","soil","surcharge","cushion","vehicle","braking")
     nodal_by_component={key:np.zeros(n_dof) for key in compnames}
     element_fe_by_component={key:[np.zeros(6) for _ in elements] for key in compnames}
     # Recover actual section moments within elements (especially under axle
     # point loads), instead of interpolating between element-end moments.
     profile_by_component = {
-        key: [{'py0': 0.0, 'py1': 0.0, 'points': []} for _ in elements]
+        key: [{'py0': 0.0, 'py1': 0.0, 'py_bubble': 0.0, 'points': []} for _ in elements]
         for key in compnames
     }
     def add_element_load(component:str,e,fl:np.ndarray):
@@ -285,6 +319,30 @@ def run_frame_analysis(
         add_element_load(component,e,_distributed_local(e['length'],lambda r:(px,py)))
         profile_by_component[component][e['id']]['py0'] += float(py)
         profile_by_component[component][e['id']]['py1'] += float(py)
+    def add_variable_top_gravity(component:str,e,kn_per_m_at_x):
+        """Consistent nodal forces for a spatially varying top-slab load.
+
+        Recover the endpoint intensity as the member-load profile for section
+        actions. The stiffness quadrature evaluates the actual distribution.
+        """
+        L=e['length']; xa=float(nodes[e['a'],0]); xb=float(nodes[e['b'],0])
+        def q(r):
+            fx,fy=0.0,-kn_per_m_at_x(xa+(xb-xa)*r)
+            return e['T'][:2,:2]@np.array([fx,fy])
+        add_element_load(component,e,_distributed_local(L,q))
+        p0 = float(q(0.0)[1]); p1 = float(q(1.0)[1])
+        profile_by_component[component][e['id']]['py0'] += p0
+        profile_by_component[component][e['id']]['py1'] += p1
+        # The crash-barrier dispersion q(x) is nonlinear. End-point linear
+        # interpolation loses part of its resultant, causing false shear
+        # equilibrium failures. Preserve the 3-point Gauss resultant used by
+        # the FEM load assembly with a zero-at-ends quadratic bubble:
+        # q(r) = p0 + (p1-p0)r + 6*delta*r*(1-r).
+        gauss = ((0.5-math.sqrt(3/5)/2,5/18),
+                 (0.5,8/18),(0.5+math.sqrt(3/5)/2,5/18))
+        average = sum(weight*float(q(r)[1]) for r,weight in gauss)
+        profile_by_component[component][e['id']]['py_bubble'] += average - (p0+p1)/2
+
     def add_linear_pressure(component:str,e,fx_at_y):
         t=e['T'];L=e['length'];y0=nodes[e['a'],1];y1=nodes[e['b'],1]
         def q(r):
@@ -299,39 +357,81 @@ def run_frame_analysis(
         profile_by_component[component][e['id']]['points'].append({
             'fraction': float(r), 'py_kn': float(py), 'mz_knm': float(mz),
         })
-    # Allocate preliminary rectangle/haunch volumes to equivalent modelled
-    # centreline members. All values are per metre longitudinal culvert width.
-    top_w=inputs.concrete_unit_weight_kn_m3*(inputs.clear_width_m+2*inputs.wall_thickness_m)*inputs.top_slab_thickness_m/span
-    bottom_w=inputs.concrete_unit_weight_kn_m3*(inputs.clear_width_m+2*inputs.wall_thickness_m)*inputs.bottom_slab_thickness_m/span
-    wall_w=inputs.concrete_unit_weight_kn_m3*inputs.wall_thickness_m*inputs.clear_height_m/rise
-    # Wearing-course gravity load, separate from RCC self-weight and from the
-    # soil cushion. The 2D centreline-frame length differs from the actual top
-    # slab outer width, so preserve the total 1m-strip gravity force by using
-    # outer-width/centreline-span scaling (same approach as top RCC self-weight).
-    # Units: m * tf/m^3 * kN/tf = kN/m^2; multiply by 1m longitudinal strip.
-    wearing_w=(inputs.wearing_coat_thickness_m
-               * inputs.wearing_course_density_tf_m3 * TF_TO_KN
-               * (inputs.clear_width_m+2*inputs.wall_thickness_m) / span)
+    # STAAD 501 SELFWEIGHT is applied to the *centreline frame members* at
+    # their actual section thicknesses (UNIT METER MTON, SELFWEIGHT Y -1).
+    # Do not scale to the outside footprint or add a separate haunch lump:
+    # neither operation appears in the source STAAD 501 member load case.
+    # The geometry/quantity schedule is separate from this FEM load model.
+    top_w = inputs.concrete_density_tf_m3 * TF_TO_KN * inputs.top_slab_thickness_m
+    bottom_w = inputs.concrete_density_tf_m3 * TF_TO_KN * inputs.bottom_slab_thickness_m
+    wall_w = inputs.concrete_density_tf_m3 * TF_TO_KN * inputs.wall_thickness_m
+    # STAAD 503 is a uniform top-member line load. For the reference geometry,
+    # 0.050 m * 2.2 tf/m3 = 0.110 tf/m (per 1m longitudinal strip).
+    wearing_w = (inputs.wearing_coat_thickness_m
+                 * inputs.wearing_course_density_tf_m3 * TF_TO_KN)
     for eid in groups['Top slab']:
-        add_uniform_global('concrete_dead',elements[eid],0,-top_w)
+        add_uniform_global('concrete_dead', elements[eid], 0, -top_w)
         if wearing_w:
-            add_uniform_global('wearing_course',elements[eid],0,-wearing_w)
+            add_uniform_global('wearing_course', elements[eid], 0, -wearing_w)
+    # STAAD reference load case 502: barrier/parapet SIDL dispersed across
+    # the top slab. Source: design-note p.6 "CB Loading Dispersion".
+    # The design-note per-barrier line load is 1.375 tf/m, derived from the
+    # same cross-sectional areas as the original Dead Load & SIDL schedule:
+    # crash-barrier equivalent area 0.400 m2, parapet 0.5 m by 0.3 m.
+    # The effective-width equation is beff = b1 + 0.5*alpha*a*(1-a/L).
+    # b1=0.85m and alpha=2.6 are *reference design assumptions* not existing
+    # Design Inputs. These require engineering approval for other geometries.
+    barrier_line_tf_m=(0.400 + inputs.ms_railing_width_m*0.300)*inputs.concrete_density_tf_m3
+    cb_b1_m=0.85
+    cb_alpha=2.600
+    def sidl_top_kn_per_m(x:float)->float:
+        a=min(max(x,0.0),max(span-x,0.0))
+        beff=cb_b1_m+0.5*cb_alpha*a*(1-a/span)
+        return barrier_line_tf_m/beff*TF_TO_KN
+    # STAAD 502 applies a uniform load to each top-slab member, evaluated
+    # at a section-specific dispersion station (source: CB Dispersion table).
+    # Reproduce those 15 member loads from the same input-driven formula,
+    # rather than applying a continuously varying pressure to each element.
+    # Refining the FEM mesh keeps the parent-member intensity unchanged.
+    hw = inputs.wall_thickness_m / 2.0
+    haunch_edge = hw + (inputs.haunch_width_m if inputs.haunch_count else 0.0)
+    end_edge = span - haunch_edge
+    parent_stations = sorted(set(round(x, 12) for x in (
+        [0.0, hw, haunch_edge]
+        + [haunch_edge + (end_edge-haunch_edge)*j/11 for j in range(1, 12)]
+        + [span-hw, span]
+    )))
+    parent_segments = len(parent_stations) - 1
+    for eid in groups['Top slab']:
+        el = elements[eid]
+        xm = (float(nodes[el['a'], 0]) + float(nodes[el['b'], 0]))/2.0
+        parent = next((j for j in range(parent_segments)
+                       if parent_stations[j]-1e-10 <= xm <= parent_stations[j+1]+1e-10), None)
+        if parent is None:
+            raise ValueError('SIDL dispersion could not map top-slab element')
+        mirror = min(parent, parent_segments-1-parent)
+        if mirror < 2 or mirror == parent_segments//2:
+            station = (parent_stations[parent] + parent_stations[parent+1])/2.0
+        elif parent < parent_segments//2:
+            station = parent_stations[parent+1]
+        else:
+            station = parent_stations[parent]
+        load = sidl_top_kn_per_m(station)
+        # STAAD 502 assigns the central top member (208) twice, once from
+        # each mirrored half of the CB-dispersion schedule. Reproduce that
+        # documented input-model behavior for the reference comparison;
+        # the engineer must confirm whether double loading is intended.
+        if parent == parent_segments // 2:
+            load *= 2.0
+        add_uniform_global('additional_sidl', el, 0, -load)
+
     for eid in groups['Bottom slab']:
-        add_uniform_global('concrete_dead',elements[eid],0,-bottom_w)
-    for member in ('Left wall','Right wall'):
+        add_uniform_global('concrete_dead', elements[eid], 0, -bottom_w)
+    for member in ('Left wall', 'Right wall'):
         for eid in groups[member]:
-            add_uniform_global('concrete_dead',elements[eid],0,-wall_w)
-    # The simplified haunch weights are applied as concentrated gravity loads
-    # at the four corner frame nodes; their increased corner stiffness is NOT
-    # represented by this constant-section beam model.
-    for corner in ((0,0),(span,0),(0,rise),(span,rise)):
-        for i,p in enumerate(nodes):
-            if np.allclose(p,corner,atol=1e-10):
-                nodal_by_component['concrete_dead'][3*i+1] -= (
-                    0.5*inputs.haunch_width_m*inputs.haunch_height_m
-                    *inputs.concrete_unit_weight_kn_m3*(inputs.haunch_count/4)
-                )
-                break
+            add_uniform_global('concrete_dead', elements[eid], 0, -wall_w)
+    # Do not add additional haunch node loads in STAAD-equivalent SELFWEIGHT;
+    # the idealised frame has constant-thickness members at the corners.
     # The earth pressure datum is the top slab upper surface, consistent with
     # the original pressure TABLE inference, not a verified STAAD application.
     # Top slab centreline is half its thickness below that surface.
@@ -339,15 +439,33 @@ def run_frame_analysis(
     for member,sign in (('Left wall',+1),('Right wall',-1)):
         for eid in groups[member]:
             e=elements[eid]
+            # STAAD load case 504 (EARTH PRESSURE) includes BOTH the
+            # depth-dependent lateral earth pressure and a uniform GX
+            # contribution of +/-0.3 tf/m² for the reference 1x3x3 input.
+            # K0 * gamma * cushion = 0.5 * 2.0 * 0.3 = 0.3 tf/m².
+            # Assign them to the same component so both receive the 504/EP
+            # combination factor (not the separate 505/EC factor).
             add_linear_pressure('soil',e, lambda y,s=sign:
-                s*earth.k0*earth.backfill_density_t_m3*(offset+rise-y)*TF_TO_KN)
-            add_linear_pressure('surcharge',e, lambda y,s=sign:
-                s*earth.k0*earth.backfill_density_t_m3*earth.surcharge_equivalent_height_m*TF_TO_KN)
-            add_linear_pressure('cushion',e, lambda y,s=sign:
-                s*earth.k0*earth.backfill_density_t_m3*earth.earth_cushion_m*TF_TO_KN)
-    # Fill directly above slab is a distinct vertical pressure component,
-    # included with the lateral cushion effect in the *same* model load case.
-    top_fill_kn_per_m=earth.backfill_density_t_m3*earth.earth_cushion_m*TF_TO_KN
+                s*earth.k0*earth.backfill_density_t_m3
+                *(offset+rise-y+earth.earth_cushion_m)*TF_TO_KN)
+            # STAAD workbook 506/507 put live-load *lateral* surcharge
+            # on LHS/RHS, respectively, not both walls in every ULS case.
+            # The default both-wall application remains unchanged for the
+            # existing Streamlit user-defined factor set.
+            if getattr(combo, 'surcharge_side', 'both') in ('both', 'left' if member == 'Left wall' else 'right'):
+                add_linear_pressure('surcharge',e, lambda y,s=sign:
+                    s*earth.k0*earth.backfill_density_t_m3*earth.surcharge_equivalent_height_m*TF_TO_KN)
+    # STAAD reference case 505 (Earth Cushion): the supplied design workbook
+    # applies a 0.5 multiplier to the vertical cushion line-load calculation.
+    # For gamma=2.0 tf/m3 and h=0.30m, the workbook reports 0.300 tf/m,
+    # rather than the full 0.600 tf/m of a 1m-wide soil strip. Preserve the
+    # *workbook's distribution convention* in the reference-equivalent model;
+    # it remains a design assumption needing the engineer's confirmation.
+    # Keep gamma and h input-driven -- no fixed 0.300 tf/m value is injected.
+    cushion_vertical_distribution_factor = 0.5
+    top_fill_kn_per_m=(cushion_vertical_distribution_factor
+                       * earth.backfill_density_t_m3
+                       * earth.earth_cushion_m * TF_TO_KN)
     for eid in groups['Top slab']:
         add_uniform_global('cushion',elements[eid],0,-top_fill_kn_per_m)
 
@@ -378,7 +496,8 @@ def run_frame_analysis(
 
     factors={
         'concrete_dead':combo.concrete_dead_factor,
-        'wearing_course':combo.wearing_course_factor,
+        'additional_sidl':getattr(combo, 'effective_additional_sidl_factor', combo.concrete_dead_factor),
+        'wearing_course':getattr(combo, 'effective_wearing_course_factor', combo.concrete_dead_factor),
         'soil':combo.soil_factor,
         'surcharge':combo.surcharge_factor,
         'cushion':combo.cushion_factor,
@@ -389,10 +508,15 @@ def run_frame_analysis(
     F=sum(loads.values(),np.zeros(n_dof))
     # Each distributed Winkler spring represents the effective tributary width
     # at a bottom slab node (subgrade modulus: tf/m³ => kN/m³).
-    dx=span/options.mesh_divisions_per_member
-    base_k=options.foundation_modulus_tf_m3*TF_TO_KN*dx
-    springs={3*i+1:base_k*(0.5 if k in (0,len(bottom_nodes)-1) else 1.0)
-             for k,(i,_) in enumerate(bottom_nodes)}
+    # Tributary widths are derived from the *actual* adjacent node distances.
+    # The previous uniform dx gave an end spring of 203.125 tf/m for the
+    # reference geometry, instead of the reference 62.5 tf/m.
+    springs={}
+    for k,(i,x) in enumerate(bottom_nodes):
+        left = (x-bottom_nodes[k-1][1])/2 if k else 0.0
+        right = (bottom_nodes[k+1][1]-x)/2 if k+1<len(bottom_nodes) else 0.0
+        tributary_width=left+right
+        springs[3*i+1]=options.foundation_modulus_tf_m3*TF_TO_KN*tributary_width
     fixed=3*bottom_nodes[0][0]  # one horizontal horizontal anchor (ux=0)
     free=np.array([j for j in range(n_dof) if j != fixed],dtype=int)
     active=set(springs)
@@ -480,6 +604,7 @@ def run_frame_analysis(
             'length_m': float(e['length']),
             'py_start_kn_per_m': sum(float(factors[c])*profile_by_component[c][index]['py0'] for c in compnames),
             'py_end_kn_per_m': sum(float(factors[c])*profile_by_component[c][index]['py1'] for c in compnames),
+            'py_bubble_kn_per_m': sum(float(factors[c])*profile_by_component[c][index]['py_bubble'] for c in compnames),
             'point_loads': points,
         })
     # End actions alone do not contain maximum internal beam moments under
@@ -510,6 +635,56 @@ def run_frame_analysis(
                                  'unfactored_fy_kn':float(sum(fv[1::3])),
                                  'applied_fx_kn':float(sum(loads[key][0::3])),
                                  'applied_fy_kn':float(sum(loads[key][1::3]))})
+    # Workbook load-case audit. These are *diagnostics*, not extra structural
+    # loads or substituted reference forces. No result from this block is used
+    # in stiffness assembly, member action recovery, or design checks.
+    # The reference STAAD sheet assigns load 502 as eight nonuniform pairs
+    # of top-slab member loads; the model does not currently reproduce them.
+    # Load 505 is a top-slab vertical intensity of -0.300 tf/m in the
+    # original 1x3x3 worksheet (Staad Input(ULS), rows 332 onwards).
+    workbook_reference_geometry = (
+        abs(inputs.clear_width_m-3.0)<1e-9
+        and abs(inputs.clear_height_m-3.0)<1e-9
+        and abs(inputs.wall_thickness_m-0.25)<1e-9
+        and abs(inputs.earth_cushion_m-0.30)<1e-9
+        and abs(inputs.top_slab_thickness_m-0.25)<1e-9
+        and abs(inputs.bottom_slab_thickness_m-0.275)<1e-9
+    )
+    reference_load_case_audit = {
+        '502_additional_sidl': {
+            'status': 'MODELLED FROM DISPERSION EQUATION; STAAD MEMBER MAPPING NOT VALIDATED',
+            'source': 'Design Note p.6, CB Loading Dispersion; STAAD load 502',
+            'component': 'additional_sidl',
+            'barrier_parapet_tf_per_m': float(barrier_line_tf_m),
+            'effective_width_base_m': cb_b1_m,
+            'effective_width_alpha': cb_alpha,
+            'sample_stations_m': (0.063,0.200,0.520,0.766,1.011,1.257,1.502,1.625),
+            'calculated_loads_tf_per_m': [
+                round(sidl_top_kn_per_m(x)/TF_TO_KN, 4)
+                for x in (0.063,0.200,0.520,0.766,1.011,1.257,1.502,1.625)
+            ],
+            'use_for_design': False,
+        },
+        '505_vertical_earth_cushion': {
+            'source': 'Staad Input(ULS), rows 332-347',
+            'python_unfactored_intensity_tf_per_m': float(
+                cushion_vertical_distribution_factor
+                * earth.backfill_density_t_m3 * earth.earth_cushion_m),
+            'reference_distribution_factor': cushion_vertical_distribution_factor,
+            'workbook_reference_intensity_tf_per_m': (
+                0.300 if workbook_reference_geometry else None),
+            'reference_geometry_applicable': workbook_reference_geometry,
+            'status': ('MISMATCH — workbook basis needs confirmation'
+                       if workbook_reference_geometry and
+                          not math.isclose(cushion_vertical_distribution_factor
+                                           * earth.backfill_density_t_m3
+                                           * earth.earth_cushion_m,0.300,abs_tol=1e-9)
+                       else ('Matches workbook reference intensity (distribution factor is provisional)'
+                             if workbook_reference_geometry
+                             else 'Reference comparison not established')),
+        },
+        'use_for_design': False,
+    }
     max_nodal_displacement_mm=max(float(np.hypot(U[3*j],U[3*j+1]))*1000 for j in range(len(nodes)))
     return {
         'mode':'EXPERIMENTAL Python 2D Euler-Bernoulli frame FEM; not STAAD / not validated',
@@ -522,6 +697,7 @@ def run_frame_analysis(
         'elements':[{'element':e['id']+1,'member':e['member'],'node_start':e['a'],
                      'node_end':e['b']} for e in elements],
         'load_components':input_components,
+        'reference_load_case_audit':reference_load_case_audit,
         'member_end_actions':end_actions,'member_action_summary':list(summary.values()),
         'member_load_profiles':member_load_profiles,
         'foundation_spring_reactions':nodal_reactions,
@@ -541,6 +717,8 @@ def run_frame_analysis(
             '1m longitudinal strip with approximate centreline frame, element stiffness and corner weights',
             'Horizontal anchor + Winkler vertical springs; foundation/contact behaviour requires engineering review',
             'Earth-pressure datum, opposing wall loading, fill application, braking lever arm/direction are assumptions',
+            'STAAD 502 barrier/parapet SIDL uses the workbook member-wise dispersion, including a duplicated centre-member load that requires engineer confirmation',
+            'STAAD 504 uniform lateral cushion pressure is grouped with soil/EP; STAAD 505 vertical cushion uses workbook 0.5 load-distribution convention requiring engineer validation',
             'Wheel point loads use spreadsheet effective-width intensities; full IRC axle/patch cases are not verified',
             'The user-configured factors are NOT certified ULS/SLS design combinations',
             'Wearing course now applies as separate gravity load; factor 1.0 is provisional and project-specific load factors require approval',

@@ -165,7 +165,10 @@ def calculate_axle_dispersion(culvert, params: VehicleLoadingInputs) -> dict:
                     final = edge + gap1 + gap2 + gap1 + edge
             elif raw/2 < params.avail_edge_width_m and raw < params.avail_centre_width_m:
                 final=raw*2
-            elif raw/2 < params.avail_edge_width_m and raw >= params.avail_centre_width_m:
+            elif raw/2 < params.avail_edge_width_m and raw > params.avail_centre_width_m:
+                # Excel Input!I590/I594 uses strict H > T13. At exact
+                # equality, the source formula falls through to its ELSE
+                # branch; >= here silently changed that boundary result.
                 final=params.avail_centre_width_m+raw
             else:
                 final=params.avail_centre_width_m+params.avail_edge_width_m+raw/2
@@ -284,3 +287,57 @@ def vehicle_preset(loading_type: str) -> VehicleLoadingInputs:
     if loading_type == 'custom':
         return VehicleLoadingInputs(case_name='Custom engineer-supplied load pattern', loading_type='custom')
     raise ValueError(f'Unsupported vehicle loading type: {loading_type}')
+
+
+def verify_40t_reference_dispersion(culvert, *, tolerance: float = 1e-8) -> dict:
+    """Check the unchanged 1x3x3 workbook's 40T reference station arithmetic.
+
+    Source: Input!D590:J590 (lead 0.00m) and D594:J594 (lead
+    0.25m), including cached wheel intensity and effective width.
+    This is a SPREADSHEET arithmetic test, NOT a FEM moment validation.
+    Only valid for the exact reference geometry/cover.
+    """
+    from dataclasses import replace
+
+    # Avoid applying 3m workbook targets to changed inputs.
+    checks = {
+        'clear_width_m': 3.0,
+        'wall_thickness_m': 0.25,
+        'length_m': 12.0,
+        'earth_cushion_m': 0.30,
+    }
+    for key, expected in checks.items():
+        actual = float(getattr(culvert, key))
+        if abs(actual - expected) > 1e-8:
+            raise ValueError(
+                f'40T workbook regression is valid only for the source 1x3x3 geometry: {key}={actual} differs from {expected}'
+            )
+    pattern = vehicle_preset('40t')
+    stations = (
+        (0.0, 3.12, 8.012820512820513),
+        (0.25, 4.09, 6.112469437652812),
+    )
+    outcomes = []
+    for lead, expected_width, expected_intensity in stations:
+        result = calculate_axle_dispersion(
+            culvert, replace(pattern, lead_axle_position_m=lead)
+        )
+        front = result['axles'][0]
+        width = front['final_effective_width_m']
+        intensity = front['load_per_unit_width_tf_m']
+        passed = (abs(width - expected_width) <= tolerance and
+                  abs(intensity - expected_intensity) <= tolerance)
+        outcomes.append({
+            'lead_axle_position_m': lead,
+            'excel_effective_width_m': expected_width,
+            'python_effective_width_m': width,
+            'excel_intensity_tf_per_m': expected_intensity,
+            'python_intensity_tf_per_m': intensity,
+            'passed': passed,
+        })
+    return {
+        'source': 'Input!D590:J590 and Input!D594:J594',
+        'all_passed': all(r['passed'] for r in outcomes),
+        'stations': outcomes,
+        'status': 'Workbook arithmetic only; 40T FEM placement and moments remain unverified.',
+    }
