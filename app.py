@@ -47,6 +47,7 @@ from src.drawings import draw_frame_solver_results
 from src.frame_solver import FrameOptions, ThermalLoad, run_frame_analysis, _build_mesh
 from src.thermal_moving_envelope import calculate_thermal_moving_envelope
 from src.live_static_normals import calculate_connected_normal_moments, calculate_connected_static_actions
+from src.live_vehicle_ll_check import calculate_four_vehicle_ll
 from src.calculations import calculate_live_frame_flexural_demands
 # The workbook reference benchmark is optional if only app.py was copied.
 # The complete installation still includes src/reference_fem.py and
@@ -1508,8 +1509,101 @@ def _cached_design_normal_moments(current_inputs, solver_options):
     return calculate_connected_static_actions(current_inputs, options=solver_options)
 
 
+@st.cache_data(show_spinner=False, max_entries=4)
+def _cached_four_vehicle_ll_for_live_tables(current_inputs, modulus_gpa, scan_spacing,
+                                            chosen_vehicle, chosen_vehicle_inputs):
+    """Pure-by-input live FEM evaluation; reruns on changed geometry/load values.
+
+    Cached results are never represented as validated design actions.  The
+    reference schedules are for comparison and row mapping only.
+    """
+    return calculate_four_vehicle_ll(
+        current_inputs, default_design_moment_rows(), default_design_shear_rows(),
+        data_dir=Path(__file__).resolve().parent / 'data',
+        elastic_modulus_gpa=modulus_gpa, scan_step_m=scan_spacing,
+        selected_vehicle_code=(chosen_vehicle if chosen_vehicle in
+                               ('70rw', '40t', '70rt', 'sv385') else None),
+        selected_vehicle_inputs=chosen_vehicle_inputs,
+    )
+
+
 with design_moment_calc_tab:
     st.subheader('Design moment due to different load combination')
+    # Independent four-vehicle LL FEM preview. Never silently replace the
+    # approved reference values until the numerical validation actually passes.
+    with st.expander('Four-vehicle LL FEM comparison (unverified)', expanded=False):
+        st.caption('Scans 70R(W), 40T, 70R(T), and SV at the current geometry. '
+                   'Checks the exact 26 moment and 16 shear selectors against '
+                   'reference values. The tables below remain unchanged.')
+        ll_scan_step = st.select_slider(
+            'LL comparison scan spacing (m)',
+            options=[0.10, 0.15, 0.25, 0.50], value=0.25,
+            key='ll_comparison_scan_step',
+        )
+        if st.button('Calculate and compare all four vehicle LL cases',
+                     key='run_ll_comparison'):
+            try:
+                with st.spinner('Calculating independent vehicle FEM envelopes...'):
+                    ll_check=calculate_four_vehicle_ll(
+                        inputs, default_design_moment_rows(), default_design_shear_rows(),
+                        data_dir=Path(__file__).resolve().parent/'data',
+                        elastic_modulus_gpa=frame_options.concrete_elastic_modulus_gpa,
+                        scan_step_m=ll_scan_step,
+                        selected_vehicle_code=vehicle_code if vehicle_code in
+                            ('70rw','40t','70rt','sv385') else None,
+                        selected_vehicle_inputs=vehicle_inputs,
+                    )
+                st.session_state['ll_comparison_result'] = ll_check
+                st.session_state['ll_comparison_input_fingerprint'] = repr((
+                    inputs, frame_options.concrete_elastic_modulus_gpa,
+                    ll_scan_step, vehicle_code, vehicle_inputs,
+                ))
+            except (ValueError, TypeError, KeyError, OSError, RuntimeError) as exc:
+                st.error(f'Vehicle LL calculation unavailable: {exc}')
+        prior_ll=st.session_state.get('ll_comparison_result')
+        if prior_ll is not None:
+            current_fingerprint=repr((inputs, frame_options.concrete_elastic_modulus_gpa,
+                                      ll_scan_step, vehicle_code, vehicle_inputs))
+            if st.session_state.get('ll_comparison_input_fingerprint')!=current_fingerprint:
+                st.warning('Design Inputs changed. Click Calculate again: the earlier '
+                           'vehicle comparison no longer describes this design.')
+            else:
+                st.warning('Live LL remains UNVERIFIED. Do not use these results for '
+                           'structural design until member-end responses are validated.')
+                st.write(f"LL component checks within 0.025: "
+                         f"{prior_ll['matched']}/{prior_ll['tested']}")
+                st.dataframe(prior_ll['comparison'], hide_index=True,
+                             use_container_width=True, height=280)
+
+    # The source workbook remains the default.  Live LL is an explicit,
+    # clearly labelled, unvalidated *alternative*, not an approval of the
+    # independent vehicle model.  Only the data change, not the table layout.
+    use_unverified_live_ll = st.checkbox(
+        'Use recalculated four-vehicle LL in Design Moment and Shear Force tables (UNVERIFIED)',
+        value=False, key='use_unverified_live_ll_in_tables',
+        help='Recomputes all four moving-vehicle FEM cases from Design Inputs; '
+             'results do not yet reproduce the original workbook consistently.',
+    )
+    _live_ll_for_tables = None
+    if use_unverified_live_ll:
+        st.warning('UNVERIFIED live-load model: resulting moments, shears and '
+                   'downstream totals must NOT be used for an approved structural design. '
+                   'Switch this option off to restore reference LL values.')
+        try:
+            with st.spinner('Recalculating four-vehicle LL for current Design Inputs...'):
+                _live_ll_for_tables = _cached_four_vehicle_ll_for_live_tables(
+                    inputs, float(frame_options.concrete_elastic_modulus_gpa),
+                    float(ll_scan_step), vehicle_code, vehicle_inputs,
+                )
+            st.caption('Four-vehicle LL component comparisons within 0.025: '
+                       f"{_live_ll_for_tables['matched']}/{_live_ll_for_tables['tested']}. "
+                       'This is not a validation pass.')
+        except (ValueError, TypeError, KeyError, OSError, RuntimeError,
+                ArithmeticError, AssertionError) as exc:
+            st.error('Live vehicle LL could not be calculated. Both tables retain '
+                     'reference LL values: ' + str(exc))
+            _live_ll_for_tables = None
+
     st.caption('Sign convention: +ve MZ causes tension at the top of the member; '
                '-ve MZ causes tension at the bottom. Units: t-m/m.')
 
@@ -1521,6 +1615,20 @@ with design_moment_calc_tab:
         st.session_state['design_moment_editor_version'] += 1
 
     original_moments = default_design_moment_rows()
+    if _live_ll_for_tables is not None:
+        computed_ll_rows = _live_ll_for_tables['moment']
+        if len(computed_ll_rows) != len(original_moments) or any(
+            int(old['Excel row']) != int(new['Excel row'])
+            for old, new in zip(original_moments, computed_ll_rows)
+        ):
+            st.error('LL moment row mapping failed. Original reference LL retained.')
+            _live_ll_for_tables = None
+        else:
+            original_moments = [
+                {**old, **{column: float(new[column]) for column in
+                          ('ULS LL', 'Rare LL', 'Quasi LL')}}
+                for old, new in zip(original_moments, computed_ll_rows)
+            ]
     # Update only the three Normal force columns. The original LL fields are
     # NOT altered: the independent vehicle FEM still fails the reference audit.
     # If live computation fails, preserve the reference but warn conspicuously;
@@ -1554,9 +1662,9 @@ with design_moment_calc_tab:
     edited_moments = st.data_editor(
         moment_input_rows,
         key=(f"design_moment_editor_{st.session_state['design_moment_editor_version']}_"
-             f"{hashlib.sha256(repr([(r['ULS Normal'], r['Rare Normal'], r['Quasi Normal']) for r in original_moments]).encode()).hexdigest()[:12]}"),
+             f"{hashlib.sha256(repr([(r['ULS Normal'], r['Rare Normal'], r['Quasi Normal'], r['ULS LL'], r['Rare LL'], r['Quasi LL']) for r in original_moments]).encode()).hexdigest()[:12]}"),
         hide_index=True, use_container_width=True, num_rows='fixed', height=440,
-        disabled=['Member', 'Location', 'Face', 'ULS Normal', 'Rare Normal', 'Quasi Normal'],
+        disabled=['Member', 'Location', 'Face', 'ULS Normal', 'Rare Normal', 'Quasi Normal'] + (['ULS LL', 'Rare LL', 'Quasi LL'] if _live_ll_for_tables is not None else []),
         column_config={
             'Member': st.column_config.TextColumn('Member', width='small'),
             'Location': st.column_config.TextColumn('Location', width='medium'),
@@ -1591,7 +1699,7 @@ with design_moment_calc_tab:
         )
         st.caption('The four interior-support Excel rows containing #VALUE! were omitted '
                    'for this single-cell reference case. Normal moments are live FEM outputs; '
-                   'LL entries remain reference inputs. These rows do not change the separate '
+                   'LL entries are unverified live FEM values only if explicitly selected; otherwise they remain reference inputs. These rows do not change the separate '
                    'Stage 5 ULS/SLS design checks.')
     except (ValueError, TypeError) as exc:
         _uls_linked_inputs['Design Moment'] = None
@@ -1606,6 +1714,18 @@ with design_moment_calc_tab:
         st.session_state['design_shear_editor_version'] += 1
 
     original_shears = default_design_shear_rows()
+    if _live_ll_for_tables is not None:
+        live_shear_ll = _live_ll_for_tables['shear']
+        if len(live_shear_ll) != len(original_shears) or any(
+            int(old['Excel row']) != int(new['Excel row'])
+            for old, new in zip(original_shears, live_shear_ll)
+        ):
+            st.error('LL shear row mapping failed. Original reference LL retained.')
+        else:
+            original_shears = [
+                {**old, 'LL': float(new['LL'])}
+                for old, new in zip(original_shears, live_shear_ll)
+            ]
     _live_shear_normal_ok = False
     try:
         _computed_shears = _cached_design_normal_moments(inputs, frame_options)['shear_normal']
@@ -1621,7 +1741,7 @@ with design_moment_calc_tab:
         _live_shear_normal_ok = True
         st.caption('ULS Normal shears are recalculated from the current static FEM '
                    'cases; four-vehicle LL values remain unverified reference '
-                   'entries and are not silently overwritten.')
+                   'entries unless explicitly overridden with unverified live LL.')
     except (ValueError, TypeError, KeyError, ArithmeticError, RuntimeError) as exc:
         st.warning('Live ULS Normal shear unavailable; reference values are shown '
                    'and may not reflect changed inputs: ' + str(exc))
@@ -1634,9 +1754,9 @@ with design_moment_calc_tab:
     edited_shears = st.data_editor(
         shear_edit_rows,
         key=(f"design_shear_editor_{st.session_state['design_shear_editor_version']}_"
-             f"{hashlib.sha256(repr([r['Normal'] for r in original_shears]).encode()).hexdigest()[:12]}"),
+             f"{hashlib.sha256(repr([(r['Normal'], r['LL']) for r in original_shears]).encode()).hexdigest()[:12]}"),
         hide_index=True, use_container_width=True, num_rows='fixed', height=460,
-        disabled=['Member', 'Location', 'Face', 'Normal'],
+        disabled=['Member', 'Location', 'Face', 'Normal'] + (['LL'] if _live_ll_for_tables is not None else []),
         column_config={
             'Member': st.column_config.TextColumn('Member', width='small'),
             'Location': st.column_config.TextColumn('Location', width='medium'),
