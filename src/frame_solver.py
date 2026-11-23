@@ -28,6 +28,26 @@ from .vehicle_loading import VehicleLoadingInputs, calculate_axle_dispersion
 from .load_combinations import CombinationInputs
 
 
+
+@dataclass(frozen=True)
+class ThermalLoad:
+    """Free thermal strain and top-slab thermal gradient, 1 m frame strip.
+
+    Positive top_minus_bottom_c means top hotter than bottom.
+    A separate temperature_factor permits explicit combination control.
+    """
+    uniform_delta_c: float = 0.0
+    top_minus_bottom_c: float = 0.0
+    expansion_coefficient_per_c: float = 0.000012
+    temperature_factor: float = 1.0
+
+    def validate(self):
+        for name, val in asdict(self).items():
+            if isinstance(val, bool) or not isinstance(val, (int,float)) or not math.isfinite(val):
+                raise ValueError(f'Thermal {name} must be a finite number')
+        if self.expansion_coefficient_per_c <= 0 or self.temperature_factor < 0:
+            raise ValueError('Thermal alpha must be positive and factor nonnegative')
+
 @dataclass(frozen=True)
 class FrameOptions:
     concrete_elastic_modulus_gpa: float = 32.0
@@ -36,6 +56,8 @@ class FrameOptions:
     compression_only_springs: bool = False
     braking_case: str = "Class 70R(W) + A"
     braking_direction: int = 1
+    # Existing behavior = 2; test 1 against workbook before adopting.
+    sidl_centre_member_repeat_count: int = 2
 
     def validate(self):
         if not (math.isfinite(self.concrete_elastic_modulus_gpa) and 1 <= self.concrete_elastic_modulus_gpa <= 100):
@@ -46,6 +68,8 @@ class FrameOptions:
             raise ValueError("Mesh divisions must be an integer between 2 and 24")
         if self.braking_case not in ("Class 70R(W) + A", "Class 40T + A"):
             raise ValueError("Unknown braking case")
+        if type(self.sidl_centre_member_repeat_count) is not int or self.sidl_centre_member_repeat_count not in (1, 2):
+            raise ValueError("SIDL centre-member repeat count must be 1 or 2")
         if self.braking_direction not in (-1, 1):
             raise ValueError("Braking direction must be +1 or -1")
 
@@ -274,6 +298,7 @@ def run_frame_analysis(
     vehicle:VehicleLoadingInputs|None=None,
     combo:CombinationInputs|None=None,
     options:FrameOptions|None=None,
+    thermal:ThermalLoad|None=None,
 ) -> dict:
     """Solve a modelled 2D frame with mutually compatible kN/m-strip loads.
 
@@ -286,7 +311,8 @@ def run_frame_analysis(
     vehicle=vehicle or VehicleLoadingInputs()
     combo=combo or CombinationInputs()
     options=options or FrameOptions()
-    earth.validate();braking.validate();vehicle.validate();combo.validate();options.validate()
+    thermal=thermal or ThermalLoad()
+    earth.validate();braking.validate();vehicle.validate();combo.validate();options.validate();thermal.validate()
     if not math.isclose(earth.earth_cushion_m,inputs.earth_cushion_m,abs_tol=1e-9):
         raise ValueError('Earth cushion must match geometry')
     if not math.isclose(braking.length_m, inputs.length_m,abs_tol=1e-9):
@@ -302,7 +328,7 @@ def run_frame_analysis(
         kg=e['T'].T@kl@e['T']
         ids=e['dofs'];K[np.ix_(ids,ids)] += kg
 
-    compnames=("concrete_dead","additional_sidl","wearing_course","soil","surcharge","cushion","vehicle","braking")
+    compnames=("concrete_dead","additional_sidl","wearing_course","soil","surcharge","cushion","vehicle","braking","thermal")
     nodal_by_component={key:np.zeros(n_dof) for key in compnames}
     element_fe_by_component={key:[np.zeros(6) for _ in elements] for key in compnames}
     # Recover actual section moments within elements (especially under axle
@@ -422,7 +448,7 @@ def run_frame_analysis(
         # documented input-model behavior for the reference comparison;
         # the engineer must confirm whether double loading is intended.
         if parent == parent_segments // 2:
-            load *= 2.0
+            load *= options.sidl_centre_member_repeat_count
         add_uniform_global('additional_sidl', el, 0, -load)
 
     for eid in groups['Bottom slab']:
@@ -475,8 +501,12 @@ def run_frame_analysis(
     # not recovered from spreadsheet and require engineer confirmation.
     wheel_results=calculate_axle_dispersion(inputs,vehicle)
     for row in wheel_results['axles']:
-        if not row['on_span']:continue
-        x=row['distance_from_left_support_m']
+        # Compute reference effective width at the original Input-table
+        # stations; apply force at the workbook's separate generated DIST
+        # stations. For other vehicles both coordinate systems coincide.
+        if not row['on_span'] or not row.get('on_generated_span', True):continue
+        x=row.get('generated_distance_from_left_support_m',
+                  row['distance_from_left_support_m'])
         eid=min(groups['Top slab'],key=lambda j:abs((nodes[elements[j]['a'],0]+nodes[elements[j]['b'],0])/2-x))
         el=elements[eid];xa=nodes[el['a'],0];r=(x-xa)/el['length']
         if r<-1e-7 or r>1+1e-7:
@@ -494,6 +524,33 @@ def run_frame_analysis(
     add_global_point('braking',topmid,0.0 if len(groups['Top slab'])%2==0 else 0.5,
                      fx=bf,mz=-bf*braking.assumed_lever_arm_m)
 
+
+    # Thermal initial-strain loads: exact, consistent nodal loads in local axes.
+    # Axial: EA alpha DeltaT [-1, 0, 0, 1, 0, 0].
+    # Flexural: EI alpha (T_top-T_bottom)/h [0, 0, -1, 0, 0, 1].
+    # This imposes free expansion/curvature in an unrestrained member; the
+    # restrained frame reacts through its actual stiffness and spring supports.
+    # Gradient profile is only known for the top slab in the source design note.
+    if abs(thermal.uniform_delta_c) > 0 or abs(thermal.top_minus_bottom_c) > 0:
+        alpha = thermal.expansion_coefficient_per_c
+        for el in elements:
+            t = el['thickness']
+            ea = E*t  # 1 m longitudinal frame strip
+            ei = E*t**3/12.0
+            f = np.zeros(6)
+            if thermal.uniform_delta_c:
+                axial = ea*alpha*thermal.uniform_delta_c
+                f[0] -= axial
+                f[3] += axial
+            if el['member'] == 'Top slab' and thermal.top_minus_bottom_c:
+                # Global top face (positive y) is local +y for left-to-right slab.
+                # For a beam bending displacement v upward positive, hotter
+                # top expands more; its free curvature is negative.
+                curvature = -alpha*thermal.top_minus_bottom_c/t
+                f[2] -= ei*curvature
+                f[5] += ei*curvature
+            add_element_load('thermal', el, f)
+
     factors={
         'concrete_dead':combo.concrete_dead_factor,
         'additional_sidl':getattr(combo, 'effective_additional_sidl_factor', combo.concrete_dead_factor),
@@ -503,6 +560,7 @@ def run_frame_analysis(
         'cushion':combo.cushion_factor,
         'vehicle':combo.vehicle_factor,
         'braking':combo.braking_factor,
+        'thermal':thermal.temperature_factor,
     }
     loads={key:float(factors[key])*nodal_by_component[key] for key in compnames}
     F=sum(loads.values(),np.zeros(n_dof))
@@ -688,6 +746,7 @@ def run_frame_analysis(
     max_nodal_displacement_mm=max(float(np.hypot(U[3*j],U[3*j+1]))*1000 for j in range(len(nodes)))
     return {
         'mode':'EXPERIMENTAL Python 2D Euler-Bernoulli frame FEM; not STAAD / not validated',
+        'thermal_load':asdict(thermal),
         'options':asdict(options),'load_factors':factors,
         'frame_width_m':span,'frame_height_m':rise,
         'strip_width_m':1.0,'node_count':len(nodes),'element_count':len(elements),

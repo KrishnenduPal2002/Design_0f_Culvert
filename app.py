@@ -6,8 +6,10 @@ Run: py -3.14 -m streamlit run app.py
 from __future__ import annotations
 
 import io
+import hashlib
 import math
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 
 import matplotlib
@@ -42,7 +44,10 @@ from src.vehicle_loading import (VehicleLoadingInputs, vehicle_preset)
 from src.load_combinations import CombinationInputs
 from src.structural_analysis import is_original_geometry
 from src.drawings import draw_frame_solver_results
-from src.frame_solver import FrameOptions
+from src.frame_solver import FrameOptions, ThermalLoad, run_frame_analysis, _build_mesh
+from src.thermal_moving_envelope import calculate_thermal_moving_envelope
+from src.live_static_normals import calculate_connected_normal_moments, calculate_connected_static_actions
+from src.calculations import calculate_live_frame_flexural_demands
 # The workbook reference benchmark is optional if only app.py was copied.
 # The complete installation still includes src/reference_fem.py and
 # data/reference_staad_model.json.
@@ -65,11 +70,46 @@ from src.reinforcement_drawings import (
 )
 
 
+
+def calculate_reference_scaled_ll_base_pressure(inputs, vehicle_inputs) -> float:
+    """Estimate LL base pressure (tf/m²), anchored to the source's 0.50 value.
+
+    Original calibration: 3.0 m clear width, 0.25 m walls, 12 m length,
+    and the Class 70R(W) preset. Preserves 0.500 on *that* case, while
+    recalculating for the active axle-load total and base footprint.
+
+    Important: this is a calibrated proxy, NOT a validated foundation
+    reaction calculation, code-compliant bearing envelope, or vehicle
+    dispersion/contact-pressure model. Do not use for design approval.
+    """
+    reference_area_m2 = (3.0 + 2.0 * 0.25) * 12.0
+    reference_axle_total_tf = sum(vehicle_preset('70rw').wheel_loads_tf)
+    current_axle_total_tf = sum(vehicle_inputs.wheel_loads_tf)
+    current_base_area_m2 = (
+        inputs.clear_width_m + 2.0 * inputs.wall_thickness_m
+    ) * inputs.length_m
+    values = (reference_axle_total_tf, current_axle_total_tf, current_base_area_m2)
+    if not all(math.isfinite(x) for x in values):
+        raise ValueError('Base area and vehicle loads must be finite')
+    if reference_axle_total_tf <= 0 or current_base_area_m2 <= 0 or current_axle_total_tf < 0:
+        raise ValueError('Invalid base area or axle-load total for LL base pressure')
+    reference_equivalent_live_load_tf = 0.50 * reference_area_m2
+    return (reference_equivalent_live_load_tf
+            * current_axle_total_tf / reference_axle_total_tf
+            / current_base_area_m2)
+
 st.set_page_config(page_title="RCC Box Culvert | ULS, SLS, BBS & BOQ", page_icon="🏗️", layout="wide", initial_sidebar_state="expanded")
 
 @st.cache_data(show_spinner=False, max_entries=10)
-def _cached_moving_uls_envelope(inputs, earth, braking, vehicle, combo, options, step_m):
-    """Cached ULS bending-and-shear scan; cache v2 includes 16-row FEM shears."""
+def _cached_moving_uls_envelope(inputs, earth, braking, vehicle, combo, options, step_m, thermal):
+    """Cached moving ULS scan including exact active thermal action per position."""
+    if thermal is not None and thermal.temperature_factor > 0 and (
+        abs(thermal.uniform_delta_c) > 1e-12 or abs(thermal.top_minus_bottom_c) > 1e-12
+    ):
+        return calculate_thermal_moving_envelope(
+            inputs, earth=earth, braking=braking, vehicle=vehicle,
+            combo=combo, options=options, step_m=step_m, thermal=thermal,
+        )
     return calculate_moving_vehicle_uls_envelope(
         inputs, earth=earth, braking=braking, vehicle=vehicle, combo=combo,
         options=options, step_m=step_m,
@@ -1084,13 +1124,23 @@ with tab_calcs:
         )
         edited_rows = base_rows
 
-        # This source design assumes an LL base pressure of 0.50 t/m².
-        # It is NOT an input-derived vehicle bearing-pressure calculation.
-        ll_base_pressure = 0.50
+        # Calibrated *reference-case* live-load bearing-pressure estimate.
+        # The source design supplies 0.50 tf/m², but does not supply an
+        # independently validated LL reaction-to-bearing-pressure procedure.
+        # Convert that datum to an equivalent live-load resultant over the
+        # original footprint, then scale it with the selected axle-load total
+        # and divide by the *current* base area. This is NOT a design-code
+        # bearing-pressure or moving-vehicle FEM reaction envelope.
+        ll_base_pressure = calculate_reference_scaled_ll_base_pressure(
+            inputs, vehicle_inputs,
+        )
         base_area_edit = None  # Always recomputed from the current geometry.
-        st.caption('Base area comes from Design Inputs. LL base pressure 0.50 t/m² '
-                   'remains an explicit original-design assumption, pending '
-                   'an independent traffic-bearing-pressure calculation.')
+        st.caption(
+            'LL base pressure: reference-calibrated estimate from the current '
+            'vehicle axle-load total and base slab area. The original 1×3×3, '
+            '12 m, Class 70R(W) case yields 0.500 t/m². This is not a '
+            'validated traffic bearing-pressure envelope.'
+        )
         try:
             dead_load = calculate_dead_load_sidl(
                 inputs, edited_rows,
@@ -1130,16 +1180,31 @@ with tab_calcs:
 
     with spring_constant_tab:
         st.subheader('Spring Constant')
-        st.caption('Spring constant = input subgrade modulus × reference tributary width. '
-                   'Widths scale with the current bottom-slab total width; verify nodal tributaries against FEM meshing.')
-        # Input-only calculation: retain the reference four-node grouping.
-        # Reference tributary widths are proportional to the bottom-slab width;
-        # these are design-note schedule widths, not the FEM mesh springs.
-        reference_width_m = 3.50
-        current_width_m = inputs.total_width_m
+        st.caption('Spring constant = current subgrade modulus × tributary width from '
+                   'the active bottom-slab FEM mesh (1 m longitudinal strip).')
+        # This is the SAME centreline mesh and the SAME half-adjacent-element
+        # tributary rule used by src.frame_solver.run_frame_analysis().
+        # Keep the source's four-row display as a representative schedule; the
+        # actual FEM applies springs to ALL bottom-slab nodes, not just these four.
+        _mesh_nodes, _mesh_elements, _mesh_groups, _base_nodes, _span, _rise = _build_mesh(
+            inputs, frame_options
+        )
+        _base_stations = [float(x) for _, x in _base_nodes]
+        if len(_base_stations) < 4:
+            raise ValueError('FEM bottom-slab mesh must contain at least four support nodes')
+        _tributaries = [
+            (0.5 * (_base_stations[i] - _base_stations[i-1]) if i else 0.0)
+            + (0.5 * (_base_stations[i+1] - _base_stations[i])
+               if i + 1 < len(_base_stations) else 0.0)
+            for i in range(len(_base_stations))
+        ]
+        if any(w < 0 for w in _tributaries) or not math.isclose(
+            sum(_tributaries), _span, rel_tol=1e-9, abs_tol=1e-9
+        ):
+            raise ValueError('Derived spring tributaries do not cover the bottom-slab centreline')
         spring_inputs = [
-            {**r, 'Eff. Width (m)': r['Eff. Width (m)'] * current_width_m / reference_width_m}
-            for r in default_spring_constant_rows()
+            {**row, 'Eff. Width (m)': _tributaries[i]}
+            for i, row in enumerate(default_spring_constant_rows())
         ]
         st.dataframe(
             spring_inputs, hide_index=True, use_container_width=True,
@@ -1167,10 +1232,12 @@ with tab_calcs:
             )
             st.caption(f"Subgrade modulus: {springs['subgrade_reaction_modulus_tf_m3']:.2f} t/m³ · "
                        'Spring constant = Modulus × Effective width × 1 m strip.')
-            st.caption('The source screenshot rounds the first two widths to 0.06 and 0.14 m. '
-                       'The original precise widths 0.0625 and 0.1375 m reproduce its '
-                       '62.50 and 137.50 t/m results at 3.5 m width. Scaled widths '
-                       'are provisional and do not replace the mesh-specific FEM supports.')
+            st.caption(f'Four displayed rows represent the first four bottom-slab mesh nodes; '
+                       f'the FEM uses all {len(_base_nodes)} bottom-slab springs. '
+                       f'Full mesh tributary width = {sum(_tributaries):.4f} m '
+                       f'(centreline span {_span:.4f} m). '
+                       'Changing mesh refinement may change individual row widths, '
+                       'while total tributary width remains equal to the centreline span.')
         except (ValueError, TypeError) as exc:
             st.error(f'Cannot calculate Spring Constant: {exc}')
 
@@ -1263,6 +1330,8 @@ with temperature_calc_tab:
     st.caption(f'Average slab thickness h = {inputs.top_slab_thickness_m:.3f} m (Stage 1 Top Slab Thickness). '
                'Profile factor = 1 for rectangular and 0.5 for triangular regions.')
 
+    temperature_panels = {}
+    uniform_temperature_result = None
     rise_tab, fall_tab, uniform_tab = st.tabs(['Temperature Rise', 'Temperature Fall', 'Uniform Temperature'])
 
     def _temperature_gradient_panel(mode: str):
@@ -1322,6 +1391,7 @@ with temperature_calc_tab:
                        f"Equivalent ΔT = {ref['equivalent_delta_t_c']:.3f} °C. "
                        'Small differences can arise from rounded source modulus and intermediate values.')
             st.latex(r'M = E_c I \alpha \frac{\Delta T_{eq}}{h}')
+            temperature_panels[mode] = panel
         except (ValueError, TypeError, KeyError) as ex:
             st.error(f'Cannot calculate temperature {mode}: {ex}')
 
@@ -1360,11 +1430,65 @@ with temperature_calc_tab:
             ]
             st.dataframe([{'Particulars':x, 'Value':round(v,1), 'Unit':u} for x,v,u in items],
                          use_container_width=True,hide_index=True)
+            uniform_temperature_result = uniform
             st.caption(f"Creep reduction = Ec,creep / Ec = {uniform['application_factor']:.4f}. "
                        'The design note describes this as approximately half. '
-                       'STAAD temperature values are not automatically applied to the frame model.')
+                       'Thermal equivalent member loads are now applied in the experimental Python FEM.')
         except (ValueError,TypeError) as ex:
             st.error(f'Cannot calculate uniform temperature: {ex}')
+
+
+    active_thermal = ThermalLoad()  # overwritten by the selected live temperature case
+    # All three temperature cases are solved with the same FEM geometry and
+    # structural restraints as the main analysis; no printed STAAD forces are
+    # substituted for a computed frame response.
+    st.markdown('**Thermal actions in Python FEM — calculated from above tables**')
+    temp_case = st.selectbox('Thermal analysis case',
+        ['None', 'Uniform rise', 'Uniform fall', 'Gradient rise', 'Gradient fall'],
+        key='temperature_fem_case')
+    thermal_factor = st.number_input('Thermal load combination factor (engineer-reviewed)',
+        min_value=0.0, value=1.0, step=0.05, format='%.2f',
+        key='temperature_fem_factor')
+    try:
+        thermal_cases = {'None': (0.0, 0.0)}
+        if uniform_temperature_result is not None:
+            thermal_cases['Uniform rise'] = (float(uniform_temperature_result['applied_rise_c']), 0.0)
+            thermal_cases['Uniform fall'] = (-float(uniform_temperature_result['applied_fall_c']), 0.0)
+        if 'rise' in temperature_panels:
+            thermal_cases['Gradient rise'] = (0.0, float(temperature_panels['rise']['equivalent_delta_t_c']))
+        if 'fall' in temperature_panels:
+            thermal_cases['Gradient fall'] = (0.0, -float(temperature_panels['fall']['equivalent_delta_t_c']))
+        if temp_case not in thermal_cases:
+            st.warning('Temperature case has no valid input results yet.')
+        else:
+            selected_uniform, selected_gradient = thermal_cases[temp_case]
+            active_thermal = ThermalLoad(
+                uniform_delta_c=selected_uniform,
+                top_minus_bottom_c=selected_gradient,
+                expansion_coefficient_per_c=temp_alpha,
+                temperature_factor=thermal_factor)
+            # Primary analysis uses all current Stage 3 load factors. Results
+            # are available for downstream frame-connected checks, but they
+            # are not automatically a design-code-approved ULS/SLS envelope.
+            if enable_frame:
+                frame_results = run_frame_analysis(
+                    inputs, earth=plot_earth_inputs, braking=plot_braking_inputs,
+                    vehicle=vehicle_inputs, combo=combo_inputs,
+                    options=frame_options, thermal=active_thermal)
+                result['frame_solver'] = frame_results
+                st.caption('Thermal load is included in the active FEM analysis. '
+                           'The moving-vehicle ULS scan also solves the selected thermal action '
+                           'at each axle position when enabled.')
+                with st.expander('Thermal FEM member actions (experimental)', expanded=True):
+                    st.dataframe(frame_results['member_action_summary'],
+                                 hide_index=True, use_container_width=True)
+                    st.caption('Thermal load is a consistent initial-strain action; '
+                               'net thermal external force is zero but restrained member forces need not be. '
+                               'Confirm gradient direction, material coefficients and combination factors with the engineer.')
+            else:
+                st.info('Enable the in-app FEM model in Design Inputs to apply temperature loading.')
+    except (ValueError, TypeError, KeyError) as ex:
+        st.error(f'Cannot apply temperature effects to FEM: {ex}')
 
 
 
@@ -1379,6 +1503,11 @@ _uls_linked_inputs = {
 }
 _uls_linked_errors = {}
 
+@st.cache_data(show_spinner=False, max_entries=8)
+def _cached_design_normal_moments(current_inputs, solver_options):
+    return calculate_connected_static_actions(current_inputs, options=solver_options)
+
+
 with design_moment_calc_tab:
     st.subheader('Design moment due to different load combination')
     st.caption('Sign convention: +ve MZ causes tension at the top of the member; '
@@ -1392,6 +1521,31 @@ with design_moment_calc_tab:
         st.session_state['design_moment_editor_version'] += 1
 
     original_moments = default_design_moment_rows()
+    # Update only the three Normal force columns. The original LL fields are
+    # NOT altered: the independent vehicle FEM still fails the reference audit.
+    # If live computation fails, preserve the reference but warn conspicuously;
+    # do not claim stale values represent the user's changed geometry.
+    _live_static_normal_ok = False
+    try:
+        _live_static_result = _cached_design_normal_moments(inputs, frame_options)
+        live_normal_rows = _live_static_result['moment_normal']
+        if len(live_normal_rows) != 26 or len(original_moments) != 26:
+            raise ValueError('Expected exactly 26 original moment rows')
+        if any(int(ref.get('Excel row', live['Excel row'])) != int(live['Excel row'])
+               for ref, live in zip(original_moments, live_normal_rows)):
+            raise ValueError('Source row selector does not match the reference schedule')
+        original_moments = [
+            {**ref, **{key: float(live[key]) for key in
+                       ('ULS Normal', 'Rare Normal', 'Quasi Normal')}}
+            for ref, live in zip(original_moments, live_normal_rows)
+        ]
+        _live_static_normal_ok = True
+        st.caption('Normal moments are recalculated from the current geometry, '
+                   'soil pressure and source static factor sets. Four-vehicle LL '
+                   'values remain reference inputs pending validation.')
+    except (ValueError, TypeError, KeyError, ArithmeticError, RuntimeError) as exc:
+        st.warning('Live Normal FEM values unavailable; Normal and LL columns '
+                   'show reference inputs, NOT recalculated actions: ' + str(exc))
     moment_input_rows = [
         {'Member': row['Member'], 'Location': row['Location'], 'Face': row['Face'],
          **{column: row[column] for column in moment_editable_columns}}
@@ -1399,9 +1553,10 @@ with design_moment_calc_tab:
     ]
     edited_moments = st.data_editor(
         moment_input_rows,
-        key=f"design_moment_editor_{st.session_state['design_moment_editor_version']}",
+        key=(f"design_moment_editor_{st.session_state['design_moment_editor_version']}_"
+             f"{hashlib.sha256(repr([(r['ULS Normal'], r['Rare Normal'], r['Quasi Normal']) for r in original_moments]).encode()).hexdigest()[:12]}"),
         hide_index=True, use_container_width=True, num_rows='fixed', height=440,
-        disabled=['Member', 'Location', 'Face'],
+        disabled=['Member', 'Location', 'Face', 'ULS Normal', 'Rare Normal', 'Quasi Normal'],
         column_config={
             'Member': st.column_config.TextColumn('Member', width='small'),
             'Location': st.column_config.TextColumn('Location', width='medium'),
@@ -1435,8 +1590,8 @@ with design_moment_calc_tab:
             },
         )
         st.caption('The four interior-support Excel rows containing #VALUE! were omitted '
-                   'for this single-cell reference case. Edited values also feed the linked '
-                   'ULS Flexural Strength Check; they do not change the separate '
+                   'for this single-cell reference case. Normal moments are live FEM outputs; '
+                   'LL entries remain reference inputs. These rows do not change the separate '
                    'Stage 5 ULS/SLS design checks.')
     except (ValueError, TypeError) as exc:
         _uls_linked_inputs['Design Moment'] = None
@@ -1451,6 +1606,25 @@ with design_moment_calc_tab:
         st.session_state['design_shear_editor_version'] += 1
 
     original_shears = default_design_shear_rows()
+    _live_shear_normal_ok = False
+    try:
+        _computed_shears = _cached_design_normal_moments(inputs, frame_options)['shear_normal']
+        if len(_computed_shears) != 16 or len(original_shears) != 16:
+            raise ValueError('Expected exactly 16 shear rows')
+        if any(int(ref.get('Excel row', live['Excel row'])) != int(live['Excel row'])
+               for ref, live in zip(original_shears, _computed_shears)):
+            raise ValueError('Shear row selector does not match reference schedule')
+        original_shears = [
+            {**ref, 'Normal': float(live['Normal'])}
+            for ref, live in zip(original_shears, _computed_shears)
+        ]
+        _live_shear_normal_ok = True
+        st.caption('ULS Normal shears are recalculated from the current static FEM '
+                   'cases; four-vehicle LL values remain unverified reference '
+                   'entries and are not silently overwritten.')
+    except (ValueError, TypeError, KeyError, ArithmeticError, RuntimeError) as exc:
+        st.warning('Live ULS Normal shear unavailable; reference values are shown '
+                   'and may not reflect changed inputs: ' + str(exc))
     edited_shear_rows = None
     shear_edit_rows = [
         {'Member': row['Member'], 'Location': row['Location'], 'Face': row['Face'],
@@ -1459,9 +1633,10 @@ with design_moment_calc_tab:
     ]
     edited_shears = st.data_editor(
         shear_edit_rows,
-        key=f"design_shear_editor_{st.session_state['design_shear_editor_version']}",
+        key=(f"design_shear_editor_{st.session_state['design_shear_editor_version']}_"
+             f"{hashlib.sha256(repr([r['Normal'] for r in original_shears]).encode()).hexdigest()[:12]}"),
         hide_index=True, use_container_width=True, num_rows='fixed', height=460,
-        disabled=['Member', 'Location', 'Face'],
+        disabled=['Member', 'Location', 'Face', 'Normal'],
         column_config={
             'Member': st.column_config.TextColumn('Member', width='small'),
             'Location': st.column_config.TextColumn('Location', width='medium'),
@@ -1695,8 +1870,14 @@ with uls_flexural_strength_calc_tab:
                     uls_moving_envelope = _cached_moving_uls_envelope(
                         inputs, plot_earth_inputs, plot_braking_inputs,
                         vehicle_inputs, combo_inputs, frame_options,
-                        moving_uls_step,
+                        moving_uls_step, active_thermal,
                     )
+            if uls_moving_envelope and active_thermal.temperature_factor > 0 and (
+                active_thermal.uniform_delta_c or active_thermal.top_minus_bottom_c
+            ):
+                st.caption("ULS FEM envelope includes the selected temperature case at "
+                           "every scanned vehicle position; thermal and traffic actions "
+                           "are solved together, not combined by adding envelope magnitudes.")
             uls_flexural_result = calculate_uls_flexural_strength(
                 inputs,
                 constants=_uls_linked_inputs['Design Constants'],
@@ -2142,7 +2323,7 @@ with sls_calc_tab:
     pass  # removed Streamlit reminder banner
     sls_source_mode = st.radio(
         "SLS demand source",
-        ["Original Excel reference", "Manual engineer-entered demands", "Engineer-mapped SLS force CSV"],
+        ["Original Excel reference", "Manual engineer-entered demands", "Engineer-mapped SLS force CSV", "Live thermal FEM (experimental)"],
         horizontal=False, key="sls_source_mode",
     )
     st.download_button(
@@ -2163,6 +2344,52 @@ with sls_calc_tab:
             demand_overrides = parse_sls_demands_csv(file.getvalue())
         except (ValueError, TypeError) as exc:
             st.error(f"Invalid SLS force file: {exc}")
+            st.stop()
+
+    if sls_source_mode == "Live thermal FEM (experimental)":
+        source_name = "Current experimental FEM rare/quasi moments including selected temperature action"
+        st.caption("Rare and quasi factors here are engineering inputs, not certified IRC load combinations. "
+                   "Only this new FEM mode uses them; the original Excel reference mode is unchanged.")
+        slsc1, slsc2, slsc3 = st.columns(3)
+        with slsc1:
+            rare_traffic_factor = st.number_input("Rare traffic multiplier", min_value=0.0,
+                value=1.0, step=0.1, key="live_sls_rare_traffic")
+            quasi_traffic_factor = st.number_input("Quasi traffic multiplier", min_value=0.0,
+                value=0.0, step=0.1, key="live_sls_quasi_traffic")
+        with slsc2:
+            rare_thermal_factor = st.number_input("Rare thermal multiplier", min_value=0.0,
+                value=1.0, step=0.1, key="live_sls_rare_thermal")
+            quasi_thermal_factor = st.number_input("Quasi thermal multiplier", min_value=0.0,
+                value=1.0, step=0.1, key="live_sls_quasi_thermal")
+        with slsc3:
+            st.caption("Other load component factors use the selected Stage 3 factor set. "
+                       "Verify all of these with the engineer before using the calculated results.")
+        if not enable_frame:
+            st.error("Enable the in-app FEM structural model to generate SLS demand")
+            st.stop()
+        try:
+            def solve_service_case(traffic_factor, thermal_factor):
+                service_combo = replace(combo_inputs, vehicle_factor=traffic_factor)
+                service_thermal = replace(active_thermal,
+                    temperature_factor=active_thermal.temperature_factor * thermal_factor)
+                solved = run_frame_analysis(
+                    inputs, earth=plot_earth_inputs, braking=plot_braking_inputs,
+                    vehicle=vehicle_inputs, combo=service_combo,
+                    options=frame_options, thermal=service_thermal)
+                return calculate_live_frame_flexural_demands(inputs, solved)
+            rare_demands = solve_service_case(rare_traffic_factor, rare_thermal_factor)
+            quasi_demands = solve_service_case(quasi_traffic_factor, quasi_thermal_factor)
+            if len(rare_demands) != 16 or len(quasi_demands) != 16:
+                raise ValueError("FEM demand sections do not match the 16-row SLS schedule")
+            for j in range(16):
+                demand_overrides[f"S{j + 1:02d}"] = {
+                    "rare_moment_tf_m_per_m": rare_demands[j]["moment_tf_m_per_m"],
+                    "quasi_moment_tf_m_per_m": quasi_demands[j]["moment_tf_m_per_m"],
+                }
+            st.caption("Live FEM moments are face-resolved tensile magnitudes. This is an "
+                       "experimental serviceability comparison, not a signed, IRC-approved SLS envelope.")
+        except (ValueError, TypeError, KeyError) as exc:
+            st.error(f"Cannot generate current thermal SLS demands: {exc}")
             st.stop()
 
     with st.expander("SLS material constants and acceptance criteria", expanded=True):
