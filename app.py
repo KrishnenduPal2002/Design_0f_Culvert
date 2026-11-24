@@ -48,6 +48,7 @@ from src.frame_solver import FrameOptions, ThermalLoad, run_frame_analysis, _bui
 from src.thermal_moving_envelope import calculate_thermal_moving_envelope
 from src.live_static_normals import calculate_connected_normal_moments, calculate_connected_static_actions
 from src.live_vehicle_ll_check import calculate_four_vehicle_ll
+from src.linked_reinforcement import linked_demands, trial_main_steel, service_overrides, trial_stirrups
 from src.calculations import calculate_live_frame_flexural_demands
 # The workbook reference benchmark is optional if only app.py was copied.
 # The complete installation still includes src/reference_fem.py and
@@ -228,7 +229,7 @@ pass  # removed Streamlit reminder banner
 _S1_DEFAULTS = {
     "s1_clear_width": 3.0,
     "s1_clear_height": 3.0,
-    "s1_side_wall": 0.25,
+    "s1_side_wall": 0.275,
     "s1_top_slab": 0.25,
     "s1_bottom_slab": 0.275,
     "s1_cells": 1,
@@ -1499,6 +1500,7 @@ with temperature_calc_tab:
 # and therefore cannot detect variables assigned by the other tabs.
 _uls_linked_inputs = {
     'Design Moment': None,
+    'Shear Force': None,
     'Flexural R/F': None,
     'Design Constants': None,
 }
@@ -1531,97 +1533,25 @@ def _cached_std_based_four_vehicle_ll(current_inputs, modulus_gpa, scan_spacing,
 
 with design_moment_calc_tab:
     st.subheader('Design moment due to different load combination')
-    # Independent four-vehicle LL FEM preview. Never silently replace the
-    # approved reference values until the numerical validation actually passes.
-    with st.expander('Four-vehicle LL FEM comparison', expanded=False):
-        st.caption('Recalculates 70R(W), 40T, 70R(T), and SV using the supplied STD model topology. '
-                   'The saved LL benchmark used 0.275 m side walls (3.275 m centreline span), '
-                   '0.250 m top slab, 0.275 m bottom slab, 3 m clear opening, 0.30 m fill, '
-                   '12 m length, 1000 tf/m³ subgrade and 0.25 m LL scan spacing. '
-                   'The original STD load commands are reused only for their source loading assumptions. '
-                   'Other loading conditions use regenerated sampled cases.')
-        ll_scan_step = st.select_slider(
-            'LL comparison scan spacing (m)',
-            options=[0.10, 0.15, 0.25, 0.50], value=0.25,
-            key='ll_comparison_scan_step',
-        )
-        if st.button('Calculate and compare all four vehicle LL cases',
-                     key='run_ll_comparison'):
-            try:
-                with st.spinner('Calculating independent vehicle FEM envelopes...'):
-                    ll_check=calculate_four_vehicle_ll(
-                        inputs, default_design_moment_rows(), default_design_shear_rows(),
-                        data_dir=Path(__file__).resolve().parent/'data',
-                        elastic_modulus_gpa=frame_options.concrete_elastic_modulus_gpa,
-                        scan_step_m=ll_scan_step,
-                        mesh_divisions_per_member=frame_options.mesh_divisions_per_member,
-                        selected_vehicle_code=vehicle_code if vehicle_code in
-                            ('70rw','40t','70rt','sv385') else None,
-                        selected_vehicle_inputs=vehicle_inputs,
-                        compression_only_springs=frame_options.compression_only_springs,
-                    )
-                st.session_state['ll_std_comparison_result_v1'] = ll_check
-                st.session_state['ll_std_comparison_input_fingerprint_v1'] = repr((
-                    inputs, frame_options.concrete_elastic_modulus_gpa,
-                    frame_options.mesh_divisions_per_member,
-                    ll_scan_step, vehicle_code, vehicle_inputs, frame_options.compression_only_springs,
-                ))
-            except (ValueError, TypeError, KeyError, OSError, RuntimeError) as exc:
-                st.error(f'Vehicle LL calculation unavailable: {exc}')
-        prior_ll=st.session_state.get('ll_std_comparison_result_v1')
-        if prior_ll is not None:
-            current_fingerprint=repr((inputs, frame_options.concrete_elastic_modulus_gpa,
-                                      frame_options.mesh_divisions_per_member,
-                                      ll_scan_step, vehicle_code, vehicle_inputs, frame_options.compression_only_springs))
-            if st.session_state.get('ll_std_comparison_input_fingerprint_v1')!=current_fingerprint:
-                st.warning('Design Inputs changed. Click Calculate again: the earlier '
-                           'vehicle comparison no longer describes this design.')
-            else:
-                if prior_ll['near_reference_case']:
-                    st.write(f"Source-case LL checks within 0.025: {prior_ll['matched']}/{prior_ll['tested']}")
-                else:
-                    st.warning('Inputs differ from the STD benchmark; the saved workbook values are not targets for this changed design.')
-                st.caption(prior_ll['validation'])
-                st.dataframe(prior_ll['comparison'], hide_index=True,
-                             use_container_width=True, height=280)
-
-    # The source workbook remains the default.  Live LL is an explicit,
-    # clearly labelled, unvalidated *alternative*, not an approval of the
-    # independent vehicle model.  Only the data change, not the table layout.
-    use_unverified_live_ll = st.checkbox(
-        'Use recalculated four-vehicle LL in Design Moment and Shear Force tables',
-        value=False, key='use_unverified_live_ll_in_tables',
-        help='Recomputes all four moving-vehicle cases from current inputs using the STD-based solver. '
-             'The 275 mm wall source benchmark passed; changed designs require validation.',
-    )
+    # Always use the current four-vehicle LL calculation. The comparison
+    # controls are hidden; the reference scan spacing remains unchanged.
+    ll_scan_step = 0.25
+    use_unverified_live_ll = True
     _live_ll_for_tables = None
-    if use_unverified_live_ll:
-        st.warning('Live LL results require engineer review. The original STD benchmark used 275 mm side walls; '
-                   'the original app defaults to 250 mm walls. No input thickness is overridden. '
-                   'Switch this option off to view the original reference LL values.')
-        try:
-            with st.spinner('Recalculating four-vehicle LL for current Design Inputs...'):
-                _live_ll_for_tables = _cached_std_based_four_vehicle_ll(
-                    inputs, float(frame_options.concrete_elastic_modulus_gpa),
-                    float(ll_scan_step), int(frame_options.mesh_divisions_per_member),
-                    vehicle_code, vehicle_inputs, frame_options.compression_only_springs,
-                )
-            if _live_ll_for_tables['near_reference_case']:
-                st.caption(f"STD reference benchmark: {_live_ll_for_tables['matched']}/{_live_ll_for_tables['tested']} "
-                           "LL component checks within 0.025. This is a numerical benchmark, not design approval.")
-            else:
-                st.warning('Current inputs differ from the original STD reference model. '
-                           'LL values are recalculated for the entered inputs; agreement with the old Excel '
-                           'values is not expected or a validation test for this changed design. '
-                           'The source LL benchmark uses 0.275 m walls, not 0.250 m.')
-            st.caption('Vehicle load basis: ' + '; '.join(
-                f"{v}: {m['load_basis']} ({m['sample_count']} cases)"
-                for v,m in _live_ll_for_tables['scan_info'].items()))
-        except (ValueError, TypeError, KeyError, OSError, RuntimeError,
-                ArithmeticError, AssertionError) as exc:
-            st.error('Live vehicle LL could not be calculated. Both tables retain '
-                     'reference LL values: ' + str(exc))
-            _live_ll_for_tables = None
+    try:
+        with st.spinner('Recalculating four-vehicle LL for current Design Inputs...'):
+            _live_ll_for_tables = _cached_std_based_four_vehicle_ll(
+                inputs, float(frame_options.concrete_elastic_modulus_gpa),
+                float(ll_scan_step), int(frame_options.mesh_divisions_per_member),
+                vehicle_code, vehicle_inputs, frame_options.compression_only_springs,
+            )
+    except (ValueError, TypeError, KeyError, OSError, RuntimeError,
+            ArithmeticError, AssertionError) as exc:
+        st.error('Live vehicle LL could not be calculated. Both tables retain '
+                 'reference LL values: ' + str(exc))
+        _live_ll_for_tables = None
+
+    st.caption('Live FEM results require engineer review; changed designs are not independently validated.')
 
     st.caption('Sign convention: +ve MZ causes tension at the top of the member; '
                '-ve MZ causes tension at the bottom. Units: t-m/m.')
@@ -1669,8 +1599,7 @@ with design_moment_calc_tab:
         _live_static_normal_ok = True
         st.caption('Normal moments are recalculated from the current geometry, '
                    'soil pressure and source static factor sets. Quasi LL is zero by the '
-                   'source combination rule. ULS/Rare LL are live only when the '
-                   'unverified live option is enabled.')
+                   'source combination rule.')
     except (ValueError, TypeError, KeyError, ArithmeticError, RuntimeError) as exc:
         st.warning('Live Normal FEM values unavailable; Normal and LL columns '
                    'show reference inputs, NOT recalculated actions: ' + str(exc))
@@ -1703,7 +1632,7 @@ with design_moment_calc_tab:
             for original, edited in zip(original_moments, edited_moments)
         ]
         moment_result = calculate_design_moment_combinations(rows_for_calc)
-        _uls_linked_inputs['Design Moment'] = rows_for_calc
+        _uls_linked_inputs['Design Moment'] = (moment_result['rows'] if _live_static_normal_ok and _live_ll_for_tables is not None else None)
         st.markdown('**Calculated moments — ULS (Normal, LL, Factor load), Rare and Quasi-Permanent**')
         moment_columns = ['Member', 'Location', 'Face',
                           'ULS Normal', 'ULS LL', 'ULS Factor load',
@@ -1719,8 +1648,8 @@ with design_moment_calc_tab:
         )
         st.caption('The four interior-support Excel rows containing #VALUE! were omitted '
                    'for this single-cell reference case. Normal moments are live FEM outputs; '
-                   'LL entries are unverified live FEM values only if explicitly selected; otherwise they remain reference inputs. These rows do not change the separate '
-                   'Stage 5 ULS/SLS design checks.')
+                   'LL entries are live FEM values when calculation succeeds; failed calculations retain reference values with an error notice. These rows do not change the separate '
+                   'separate legacy Stage 5 design summary. The linked calculation checks below use current table demands.')
     except (ValueError, TypeError) as exc:
         _uls_linked_inputs['Design Moment'] = None
         _uls_linked_errors['Design Moment'] = str(exc)
@@ -1760,8 +1689,7 @@ with design_moment_calc_tab:
         ]
         _live_shear_normal_ok = True
         st.caption('ULS Normal shears are recalculated from the current static FEM '
-                   'cases; four-vehicle LL values remain unverified reference '
-                   'entries unless explicitly overridden with unverified live LL.')
+                   'cases; four-vehicle LL values are recalculated automatically when the live solver succeeds.')
     except (ValueError, TypeError, KeyError, ArithmeticError, RuntimeError) as exc:
         st.warning('Live ULS Normal shear unavailable; reference values are shown '
                    'and may not reflect changed inputs: ' + str(exc))
@@ -1793,6 +1721,8 @@ with design_moment_calc_tab:
             for original, edited in zip(original_shears, edited_shears)
         ]
         shear_result = calculate_design_shear_combinations(edited_shear_rows)
+        if _live_shear_normal_ok and _live_ll_for_tables is not None and len(shear_result['rows']) == 16 and all(float(a['LL']) == float(b['LL']) for a,b in zip(shear_result['rows'], _live_ll_for_tables['shear'])):
+            _uls_linked_inputs['Shear Force'] = shear_result['rows']
         st.markdown('**Calculated ULS Shear Force — Normal, LL and Total**')
         st.dataframe(
             [{col: row[col] for col in ('Member', 'Location', 'Face', 'Normal', 'LL', 'Total')}
@@ -1811,8 +1741,7 @@ with design_moment_calc_tab:
 
 with flexural_reinforcement_calc_tab:
     st.subheader('Flexural R/F detail of RCC Box')
-    st.caption('Edit inner/outer reinforcement entries, bar diameters and spacing manually. '
-               'Calculated areas update only from bar sizes and spacing; no automatic bar redesign is applied.')
+    st.caption('Trial bar spacing follows the current ULS moments. Reference bar sizes and minimum trial spacing are retained; engineer review is required.')
     st.latex(r'A_{s,\,face}=\sum_i\frac{\pi\,\phi_i^2}{4}\frac{1000}{s_i}\quad(\mathrm{mm}^2/\mathrm{m})')
 
     if 'flexural_rf_editor_version' not in st.session_state:
@@ -1821,6 +1750,16 @@ with flexural_reinforcement_calc_tab:
         st.session_state['flexural_rf_editor_version'] += 1
 
     flexural_defaults = default_flexural_reinforcement_rows()
+    _trial_steel_ok = False
+    try:
+        if _uls_linked_inputs['Design Moment'] is None:
+            raise ValueError('Current live moment demands unavailable')
+        flexural_defaults, trial_notes = trial_main_steel(inputs, default_design_constants(inputs), _uls_linked_inputs['Design Moment'])
+        _trial_steel_ok = True
+        for note in trial_notes:
+            st.warning(note)
+    except (ValueError, TypeError, KeyError, ArithmeticError) as exc:
+        st.error('Trial reinforcement unavailable: ' + str(exc))
     flexural_columns = {
         'Component': st.column_config.TextColumn('Component', width='medium'),
         'Section': st.column_config.TextColumn('Section', width='medium'),
@@ -1836,16 +1775,16 @@ with flexural_reinforcement_calc_tab:
                 f'{face} Spacing-{number} (mm)', format='%.0f')
     flexural_inputs = st.data_editor(
         flexural_defaults,
-        key=f"flexural_rf_editor_{st.session_state['flexural_rf_editor_version']}",
+        key=f"flexural_rf_editor_{st.session_state['flexural_rf_editor_version']}_" + hashlib.sha256(repr(flexural_defaults).encode()).hexdigest()[:12],
         hide_index=True, use_container_width=True, num_rows='fixed', height=600,
-        disabled=['Component', 'Section', 'Position'],
+        disabled=list(flexural_columns),
         column_config=flexural_columns,
     )
     if hasattr(flexural_inputs, 'to_dict'):
         flexural_inputs = flexural_inputs.to_dict('records')
     try:
         flexural_result = calculate_flexural_reinforcement(flexural_inputs)
-        _uls_linked_inputs['Flexural R/F'] = flexural_inputs
+        _uls_linked_inputs['Flexural R/F'] = flexural_inputs if _trial_steel_ok else None
         st.markdown('**Calculated flexural reinforcement provided at inner and outer faces**')
         result_cols = ['Component', 'Section', 'Position',
                        'Reference Inner (mm²/m)', 'Calculated Inner (mm²/m)',
@@ -1935,6 +1874,7 @@ with design_constants_calc_tab:
             'side_wall_inner_cover_mm': dc_wall_inner,
             'haunch_start_extra_depth_m': dc_extra,
         }
+        design_values = default_design_constants(inputs)
         dc_result = calculate_design_constants(inputs, design_values)
         _uls_linked_inputs['Design Constants'] = design_values
         st.write(f"**m (source):** {dc_result['values']['modular_ratio_reference']:.2f}  |  "
@@ -1979,53 +1919,18 @@ with uls_flexural_strength_calc_tab:
     st.latex(r'\frac{x_{u,\max}}{d}=\frac{0.0035}{0.0035+0.87 f_y/E_s}')
     st.latex(r'R_{\lim}=0.36 f_{ck}\left(\frac{x_{u,\max}}{d}\right)\left[1-0.416\left(\frac{x_{u,\max}}{d}\right)\right]')
     st.latex(r'd_{\min}=1000\sqrt{\frac{|M_u|}{100 R_{\lim}}}\quad(\mathrm{mm},\ M_u\mathrm{\ in\ t\cdot m/m})')
-    # Always use active FEM demands for this ULS flexural table.
-    # The source-selection radio has been removed from the UI.
-    live_source = True
     try:
-        # Validate only the three upstream results. A generator-local locals()
-        # check always failed even when all inputs were valid (Python scoping).
-        required_sources = (('Design Constants', 'Flexural R/F') if live_source
-                            else ('Design Constants', 'Flexural R/F', 'Design Moment'))
-        unavailable_sources = [
-            name for name, source in _uls_linked_inputs.items()
-            if source is None and name in required_sources
-        ]
+        required_sources = ('Design Constants', 'Flexural R/F', 'Design Moment')
+        unavailable_sources = [name for name in required_sources if _uls_linked_inputs[name] is None]
         if unavailable_sources:
-            st.error('The linked ULS check needs a valid result from: '
-                     + ', '.join(unavailable_sources) + '.')
-            for source_name in unavailable_sources:
-                if source_name in _uls_linked_errors:
-                    st.write(f"**{source_name}:** {_uls_linked_errors[source_name]}")
-        elif live_source and frame_results is None:
-            st.error('Automatic FEM moments are unavailable for this input. Enable '
-                     '\"Run in-app FEM structural model\" in Stage 4B and choose '
-                     '70R(W), 40T or Custom vehicle loading. 70R tracked and 385T '
-                     'do not currently have a supported frame-load mapping. '
-                     'No historical Excel moments have been substituted.')
+            st.error('Current linked inputs unavailable: ' + ', '.join(unavailable_sources))
         else:
-            uls_moving_envelope = None
-            if live_source and scan_vehicle_uls:
-                with st.spinner('Analyzing moving axle positions for face-specific ULS moments...'):
-                    uls_moving_envelope = _cached_moving_uls_envelope(
-                        inputs, plot_earth_inputs, plot_braking_inputs,
-                        vehicle_inputs, combo_inputs, frame_options,
-                        moving_uls_step, active_thermal,
-                    )
-            if uls_moving_envelope and active_thermal.temperature_factor > 0 and (
-                active_thermal.uniform_delta_c or active_thermal.top_minus_bottom_c
-            ):
-                st.caption("ULS FEM envelope includes the selected temperature case at "
-                           "every scanned vehicle position; thermal and traffic actions "
-                           "are solved together, not combined by adding envelope magnitudes.")
             uls_flexural_result = calculate_uls_flexural_strength(
-                inputs,
-                constants=_uls_linked_inputs['Design Constants'],
-                moment_rows=_uls_linked_inputs['Design Moment'] if not live_source else None,
+                inputs, constants=_uls_linked_inputs['Design Constants'],
                 reinforcement_rows=_uls_linked_inputs['Flexural R/F'],
-                frame_results=(frame_results if live_source and not scan_vehicle_uls else None),
-                live_demands=(uls_moving_envelope['rows'] if uls_moving_envelope else None),
+                live_demands=linked_demands(_uls_linked_inputs['Design Moment'], 'ULS Factor load'),
             )
+            st.caption('Uses the current four-vehicle Design Moment totals. Trial capacity checks require engineer review.')
             display_columns = [
                 'Component', 'Section', 'Face', 'Xu max/d', 'Xu max (m)',
                 'R lim (MPa)', 'd min (mm)', 'd provided (mm)',
@@ -2168,52 +2073,19 @@ with uls_shear_strength_calc_tab:
                'The original sheet notes that the top slab was designed on an effective-width basis. '
                'The strength expressions and section assumptions still require engineering review.')
     try:
-        required = ('Design Constants', 'Flexural R/F')
+        required = ('Design Constants', 'Flexural R/F', 'Shear Force')
         missing = [name for name in required if _uls_linked_inputs.get(name) is None]
         if missing:
             st.error('The shear check needs valid inputs from: '+', '.join(missing))
-        elif frame_results is None:
-            st.error('Automatic ULS shear requires a solved FEM model for the active Design Inputs. '
-                     'Enable the in-app FEM and choose a supported vehicle preset. '
-                     'Reference PDF shears will not be silently substituted.')
         else:
-            # The identical ULS scan/result used by Flexural Strength Check also
-            # supplies the 16 shear design sections. Re-use its cached envelope;
-            # do not launch a second incompatible FEM scan inside this tab.
-            # If vehicle scanning is off, recover the 16 section shears directly
-            # from the current (single-position) solved frame.
-            # A single-position FEM result is NOT a governing ULS shear envelope.
-            # The design-note table is a Normal + LL *envelope*, not one load case.
-            if not scan_vehicle_uls:
-                raise ValueError(
-                    'ULS design shear requires the moving-vehicle envelope. '
-                    'Enable "Scan axle positions for ULS flexural moment envelope" '
-                    'in Stage 4B. One FEM vehicle position is not the design-note '
-                    'ULS Basic Combination (Max. Shear Force).'
-                )
-            if uls_moving_envelope is None:
-                raise ValueError(
-                    'The moving-load ULS envelope was not computed. '
-                    'Cannot substitute single-position or fixed PDF shear values.'
-                )
-            automatic_shear_rows = uls_moving_envelope['shear_rows']
-            shear_method = 'Experimental moving-vehicle FEM shear envelope'
-            if len(automatic_shear_rows) != 16:
-                raise ValueError('Automatic ULS shear must produce the original 16 design sections')
-
             shear_strength = calculate_uls_shear_strength_table(
-                inputs,
-                live_shear_rows=automatic_shear_rows,
+                inputs, live_shear_rows=_uls_linked_inputs['Shear Force'],
                 reinforcement_rows=_uls_linked_inputs['Flexural R/F'],
                 constants=_uls_linked_inputs['Design Constants'],
             )
             if len(shear_strength['rows']) != 16 or len(shear_strength['columns']) != 12:
-                raise ValueError('The original PDF shear table requires 16 rows and 12 columns')
-            st.caption(shear_method + '. Design shear, reinforcement, effective depth, '
-                       'shear resistance and stirrup requirement update from the active '
-                       'Design Inputs and linked reinforcement selections. This FEM '
-                       'envelope remains unverified against the design-note PDF and '
-                       'must not be used for final engineering approval.')
+                raise ValueError('The original shear table requires 16 rows and 12 columns')
+            st.caption('Uses the current Design Shear totals and linked steel; reference effective-depth assumptions require review.')
             numeric_columns = {
                 'Reinforcement (mm²/m)': '%.2f',
                 'Effective Depth Provided (mm)': '%.0f',
@@ -2242,7 +2114,8 @@ with uls_shear_strength_calc_tab:
             # Shear reinforcement design immediately follows the preceding
             # "without stirrups" shear-strength schedule. No static Excel
             # stirrup results are presented as if they were live design results.
-            stirrup_defaults=default_uls_stirrup_inputs(shear_strength)
+            dc_shear=calculate_design_constants(inputs,_uls_linked_inputs['Design Constants'])
+            stirrup_defaults=trial_stirrups(shear_strength,dc_shear['values']['fck_mpa'],dc_shear['values']['fy_mpa'])
             if not stirrup_defaults:
                 st.info('No shear-critical sections in the current 16-row schedule. '
                         'No stirrups are automatically designed by this table.')
@@ -2461,78 +2334,16 @@ with tab_solver:
 with sls_calc_tab:
     st.subheader("Stage 6 — Serviceability Limit State (SLS)")
     pass  # removed Streamlit reminder banner
-    sls_source_mode = st.radio(
-        "SLS demand source",
-        ["Original Excel reference", "Manual engineer-entered demands", "Engineer-mapped SLS force CSV", "Live thermal FEM (experimental)"],
-        horizontal=False, key="sls_source_mode",
-    )
-    st.download_button(
-        "Download SLS force template (CSV)", sls_demands_csv_template(),
-        file_name="sls_forces_template.csv", mime="text/csv", key="sls_force_template",
-    )
-    source_name = "Original Excel SLS reference moments (not verified for changed dimensions or loading)"
-    demand_overrides = {}
-    if sls_source_mode == "Manual engineer-entered demands":
-        source_name = "Engineer-entered manual SLS moments (requires review)"
-    if sls_source_mode == "Engineer-mapped SLS force CSV":
-        source_name = "Uploaded engineer-mapped SLS moments (not independently verified)"
-        file = st.file_uploader("Upload complete SLS force CSV", type="csv", key="sls_csv_upload")
-        if file is None:
-            pass  # removed Streamlit reminder banner
-            st.stop()
-        try:
-            demand_overrides = parse_sls_demands_csv(file.getvalue())
-        except (ValueError, TypeError) as exc:
-            st.error(f"Invalid SLS force file: {exc}")
-            st.stop()
-
-    if sls_source_mode == "Live thermal FEM (experimental)":
-        source_name = "Current experimental FEM rare/quasi moments including selected temperature action"
-        st.caption("Rare and quasi factors here are engineering inputs, not certified IRC load combinations. "
-                   "Only this new FEM mode uses them; the original Excel reference mode is unchanged.")
-        slsc1, slsc2, slsc3 = st.columns(3)
-        with slsc1:
-            rare_traffic_factor = st.number_input("Rare traffic multiplier", min_value=0.0,
-                value=1.0, step=0.1, key="live_sls_rare_traffic")
-            quasi_traffic_factor = st.number_input("Quasi traffic multiplier", min_value=0.0,
-                value=0.0, step=0.1, key="live_sls_quasi_traffic_zero_v1", disabled=True,
-                help="The original quasi-permanent combination excludes vehicle LL.")
-        with slsc2:
-            rare_thermal_factor = st.number_input("Rare thermal multiplier", min_value=0.0,
-                value=1.0, step=0.1, key="live_sls_rare_thermal")
-            quasi_thermal_factor = st.number_input("Quasi thermal multiplier", min_value=0.0,
-                value=1.0, step=0.1, key="live_sls_quasi_thermal")
-        with slsc3:
-            st.caption("Other load component factors use the selected Stage 3 factor set. "
-                       "Verify all of these with the engineer before using the calculated results.")
-        if not enable_frame:
-            st.error("Enable the in-app FEM structural model to generate SLS demand")
-            st.stop()
-        try:
-            def solve_service_case(traffic_factor, thermal_factor):
-                service_combo = replace(combo_inputs, vehicle_factor=traffic_factor)
-                service_thermal = replace(active_thermal,
-                    temperature_factor=active_thermal.temperature_factor * thermal_factor)
-                solved = run_frame_analysis(
-                    inputs, earth=plot_earth_inputs, braking=plot_braking_inputs,
-                    vehicle=vehicle_inputs, combo=service_combo,
-                    options=frame_options, thermal=service_thermal)
-                return calculate_live_frame_flexural_demands(inputs, solved)
-            rare_demands = solve_service_case(rare_traffic_factor, rare_thermal_factor)
-            quasi_demands = solve_service_case(0.0, quasi_thermal_factor)
-            if len(rare_demands) != 16 or len(quasi_demands) != 16:
-                raise ValueError("FEM demand sections do not match the 16-row SLS schedule")
-            for j in range(16):
-                demand_overrides[f"S{j + 1:02d}"] = {
-                    "rare_moment_tf_m_per_m": rare_demands[j]["moment_tf_m_per_m"],
-                    "quasi_moment_tf_m_per_m": quasi_demands[j]["moment_tf_m_per_m"],
-                }
-            st.caption("Live FEM moments are face-resolved tensile magnitudes. This is an "
-                       "experimental serviceability comparison, not a signed, IRC-approved SLS envelope.")
-        except (ValueError, TypeError, KeyError) as exc:
-            st.error(f"Cannot generate current thermal SLS demands: {exc}")
-            st.stop()
-
+    sls_source_mode = "Live linked Design Moment"
+    source_name = "Current Rare and Quasi Design Moment totals and linked trial reinforcement"
+    try:
+        if _uls_linked_inputs['Design Moment'] is None or uls_flexural_result is None:
+            raise ValueError('Live design moments or linked reinforcement unavailable')
+        demand_overrides = service_overrides(_uls_linked_inputs['Design Moment'], uls_flexural_result['rows'],
+            _uls_linked_inputs['Flexural R/F'], _uls_linked_inputs['Design Constants'])
+    except (ValueError, TypeError, KeyError, ArithmeticError) as exc:
+        st.error('Cannot calculate linked SLS: ' + str(exc))
+        st.stop()
     with st.expander("SLS material constants and acceptance criteria", expanded=True):
         st.caption("Concrete and steel grades come from the sidebar. The values below are the reference-section assumptions, not automatic IRC approvals.")
         mat1, mat2, mat3 = st.columns(3)
@@ -2549,15 +2360,7 @@ with sls_calc_tab:
         if not use_crack_limit:
             st.caption("No crack-width PASS or FAIL will be reported until a verified permissible limit is set.")
 
-    share_with_uls = st.checkbox(
-        "Use current ULS effective depths and provided reinforcement as SLS starting values",
-        value=False, key="sls_uls_shared_steel",
-    )
-    if share_with_uls:
-        source_name += "; optionally copied current ULS section d/As (review required)"
-        pass  # removed Streamlit reminder banner
-        for sid, shared in steel_details_from_uls(result["uls_design"]).items():
-            demand_overrides.setdefault(sid, {}).update(shared)
+    share_with_uls = True
 
     sls_options = {
         "es_gpa": sls_es, "ecm_gpa": sls_ecm,
@@ -2578,11 +2381,11 @@ with sls_calc_tab:
                 **{field: section[field] for field in fields},
             })
         with st.expander("Edit service moments, section depths, cover and reinforcement", expanded=True):
-            st.caption("Rare and quasi moments are independent SLS inputs. Check their source, sign and governing reinforcement face with your sir.")
-            editor_tag = "sls_editor_" + sls_source_mode + ("_with_uls_steel" if share_with_uls else "_independent")
+            st.caption("Rare and Quasi moments and section steel are linked to the current calculation tables; engineer review required.")
+            editor_tag = "sls_linked_" + hashlib.sha256(repr(records).encode()).hexdigest()[:12]
             edited = st.data_editor(
                 records, hide_index=True, num_rows="fixed", use_container_width=True,
-                disabled=["section_id", "member", "location"], key=editor_tag,
+                disabled=["section_id", "member", "location", *fields], key=editor_tag,
                 column_config={
                     "section_id": st.column_config.TextColumn("Section ID"),
                     "member": st.column_config.TextColumn("Member"),
