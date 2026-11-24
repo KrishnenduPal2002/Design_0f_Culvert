@@ -1,0 +1,1137 @@
+{
+  "fixture_type": "source-section-selector-metadata-only",
+  "source_sheet": "load / Output(ULS)",
+  "basis": "single-cell 1x3x3 source lookup and its pre-validated 41-element mesh",
+  "moment_rows": [
+    {
+      "excel_row": 215,
+      "op": "max",
+      "by_family": {
+        "ULS": [
+          {
+            "source_row": 17,
+            "beam": 201,
+            "node": 17,
+            "sign": "max"
+          },
+          {
+            "source_row": 18,
+            "beam": 215,
+            "node": 30,
+            "sign": "max"
+          }
+        ],
+        "Rare": [
+          {
+            "source_row": 17,
+            "beam": 201,
+            "node": 17,
+            "sign": "max"
+          },
+          {
+            "source_row": 18,
+            "beam": 215,
+            "node": 31,
+            "sign": "max"
+          }
+        ],
+        "Quasi": [
+          {
+            "source_row": 17,
+            "beam": 201,
+            "node": 17,
+            "sign": "max"
+          },
+          {
+            "source_row": 18,
+            "beam": 215,
+            "node": 31,
+            "sign": "max"
+          }
+        ]
+      }
+    },
+    {
+      "excel_row": 216,
+      "op": "max",
+      "by_family": {
+        "ULS": [
+          {
+            "source_row": 25,
+            "beam": 202,
+            "node": 18,
+            "sign": "max"
+          },
+          {
+            "source_row": 26,
+            "beam": 214,
+            "node": 29,
+            "sign": "max"
+          }
+        ],
+        "Rare": [
+          {
+            "source_row": 25,
+            "beam": 202,
+            "node": 18,
+            "sign": "max"
+          },
+          {
+            "source_row": 26,
+            "beam": 214,
+            "node": 29,
+            "sign": "max"
+          }
+        ],
+        "Quasi": [
+          {
+            "source_row": 25,
+            "beam": 202,
+            "node": 18,
+            "sign": "max"
+          },
+          {
+            "source_row": 26,
+            "beam": 214,
+            "node": 29,
+            "sign": "max"
+          }
+        ]
+      }
+    },
+    {
+      "excel_row": 217,
+      "op": "min",
+      "by_family": {
+        "ULS": [
+          {
+            "source_row": 9,
+            "beam": 207,
+            "node": 23,
+            "sign": "min"
+          }
+        ],
+        "Rare": [
+          {
+            "source_row": 9,
+            "beam": 207,
+            "node": 23,
+            "sign": "min"
+          }
+        ],
+        "Quasi": [
+          {
+            "source_row": 9,
+            "beam": 207,
+            "node": 23,
+            "sign": "min"
+          }
+        ]
+      }
+    },
+    {
+      "excel_row": 220,
+      "op": "min",
+      "by_family": {
+        "ULS": [
+          {
+            "source_row": 33,
+            "beam": 101,
+            "node": 2,
+            "sign": "min"
+          },
+          {
+            "source_row": 34,
+            "beam": 114,
+            "node": 14,
+            "sign": "min"
+          }
+        ],
+        "Rare": [
+          {
+            "source_row": 33,
+            "beam": 101,
+            "node": 2,
+            "sign": "min"
+          },
+          {
+            "source_row": 34,
+            "beam": 114,
+            "node": 14,
+            "sign": "min"
+          }
+        ],
+        "Quasi": [
+          {
+            "source_row": 33,
+            "beam": 101,
+            "node": 2,
+            "sign": "min"
+          },
+          {
+            "source_row": 34,
+            "beam": 114,
+            "node": 14,
+            "sign": "min"
+          }
+        ]
+      }
+    },
+    {
+      "excel_row": 221,
+      "op": "min",
+      "by_family": {
+        "ULS": [
+          {
+            "source_row": 41,
+            "beam": 102,
+            "node": 3,
+            "sign": "min"
+          },
+          {
+            "source_row": 42,
+            "beam": 113,
+            "node": 13,
+            "sign": "min"
+          }
+        ],
+        "Rare": [
+          {
+            "source_row": 41,
+            "beam": 102,
+            "node": 3,
+            "sign": "min"
+          },
+          {
+            "source_row": 42,
+            "beam": 113,
+            "node": 13,
+            "sign": "min"
+          }
+        ],
+        "Quasi": [
+          {
+            "source_row": 41,
+            "beam": 102,
+            "node": 3,
+            "sign": "min"
+          },
+          {
+            "source_row": 42,
+            "beam": 113,
+            "node": 13,
+            "sign": "min"
+          }
+        ]
+      }
+    },
+    {
+      "excel_row": 222,
+      "op": "max",
+      "by_family": {
+        "ULS": [
+          {
+            "source_row": 13,
+            "beam": 108,
+            "node": 8,
+            "sign": "max"
+          }
+        ],
+        "Rare": [
+          {
+            "source_row": 13,
+            "beam": 108,
+            "node": 8,
+            "sign": "max"
+          }
+        ],
+        "Quasi": [
+          {
+            "source_row": 13,
+            "beam": 108,
+            "node": 8,
+            "sign": "max"
+          }
+        ]
+      }
+    },
+    {
+      "excel_row": 225,
+      "op": "single",
+      "by_family": {
+        "ULS": [
+          {
+            "source_row": 49,
+            "beam": 1006,
+            "node": 36,
+            "sign": "max"
+          }
+        ],
+        "Rare": [
+          {
+            "source_row": 49,
+            "beam": 1006,
+            "node": 36,
+            "sign": "max"
+          }
+        ],
+        "Quasi": [
+          {
+            "source_row": 49,
+            "beam": 1006,
+            "node": 36,
+            "sign": "max"
+          }
+        ]
+      }
+    },
+    {
+      "excel_row": 226,
+      "op": "single",
+      "by_family": {
+        "ULS": [
+          {
+            "source_row": 54,
+            "beam": 2006,
+            "node": 41,
+            "sign": "min"
+          }
+        ],
+        "Rare": [
+          {
+            "source_row": 54,
+            "beam": 2006,
+            "node": 41,
+            "sign": "min"
+          }
+        ],
+        "Quasi": [
+          {
+            "source_row": 54,
+            "beam": 2006,
+            "node": 41,
+            "sign": "min"
+          }
+        ]
+      }
+    },
+    {
+      "excel_row": 227,
+      "op": "single",
+      "by_family": {
+        "ULS": [
+          {
+            "source_row": 50,
+            "beam": 1006,
+            "node": 36,
+            "sign": "min"
+          }
+        ],
+        "Rare": [
+          {
+            "source_row": 50,
+            "beam": 1006,
+            "node": 36,
+            "sign": "min"
+          }
+        ],
+        "Quasi": [
+          {
+            "source_row": 50,
+            "beam": 1006,
+            "node": 36,
+            "sign": "min"
+          }
+        ]
+      }
+    },
+    {
+      "excel_row": 228,
+      "op": "single",
+      "by_family": {
+        "ULS": [
+          {
+            "source_row": 53,
+            "beam": 2006,
+            "node": 41,
+            "sign": "max"
+          }
+        ],
+        "Rare": [
+          {
+            "source_row": 53,
+            "beam": 2006,
+            "node": 41,
+            "sign": "max"
+          }
+        ],
+        "Quasi": [
+          {
+            "source_row": 53,
+            "beam": 2006,
+            "node": 41,
+            "sign": "max"
+          }
+        ]
+      }
+    },
+    {
+      "excel_row": 229,
+      "op": "single",
+      "by_family": {
+        "ULS": [
+          {
+            "source_row": 51,
+            "beam": 1005,
+            "node": 35,
+            "sign": "max"
+          }
+        ],
+        "Rare": [
+          {
+            "source_row": 51,
+            "beam": 1005,
+            "node": 35,
+            "sign": "max"
+          }
+        ],
+        "Quasi": [
+          {
+            "source_row": 51,
+            "beam": 1005,
+            "node": 35,
+            "sign": "max"
+          }
+        ]
+      }
+    },
+    {
+      "excel_row": 230,
+      "op": "single",
+      "by_family": {
+        "ULS": [
+          {
+            "source_row": 56,
+            "beam": 2005,
+            "node": 40,
+            "sign": "min"
+          }
+        ],
+        "Rare": [
+          {
+            "source_row": 56,
+            "beam": 2005,
+            "node": 40,
+            "sign": "min"
+          }
+        ],
+        "Quasi": [
+          {
+            "source_row": 56,
+            "beam": 2005,
+            "node": 40,
+            "sign": "min"
+          }
+        ]
+      }
+    },
+    {
+      "excel_row": 231,
+      "op": "single",
+      "by_family": {
+        "ULS": [
+          {
+            "source_row": 52,
+            "beam": 1005,
+            "node": 35,
+            "sign": "min"
+          }
+        ],
+        "Rare": [
+          {
+            "source_row": 52,
+            "beam": 1005,
+            "node": 35,
+            "sign": "min"
+          }
+        ],
+        "Quasi": [
+          {
+            "source_row": 52,
+            "beam": 1005,
+            "node": 35,
+            "sign": "min"
+          }
+        ]
+      }
+    },
+    {
+      "excel_row": 232,
+      "op": "single",
+      "by_family": {
+        "ULS": [
+          {
+            "source_row": 55,
+            "beam": 2005,
+            "node": 40,
+            "sign": "max"
+          }
+        ],
+        "Rare": [
+          {
+            "source_row": 55,
+            "beam": 2005,
+            "node": 40,
+            "sign": "max"
+          }
+        ],
+        "Quasi": [
+          {
+            "source_row": 55,
+            "beam": 2005,
+            "node": 40,
+            "sign": "max"
+          }
+        ]
+      }
+    },
+    {
+      "excel_row": 233,
+      "op": "single",
+      "by_family": {
+        "ULS": [
+          {
+            "source_row": 69,
+            "beam": 1004,
+            "node": 34,
+            "sign": "max"
+          }
+        ],
+        "Rare": [
+          {
+            "source_row": 69,
+            "beam": 1004,
+            "node": 34,
+            "sign": "max"
+          }
+        ],
+        "Quasi": [
+          {
+            "source_row": 69,
+            "beam": 1004,
+            "node": 34,
+            "sign": "max"
+          }
+        ]
+      }
+    },
+    {
+      "excel_row": 234,
+      "op": "single",
+      "by_family": {
+        "ULS": [
+          {
+            "source_row": 72,
+            "beam": 2004,
+            "node": 39,
+            "sign": "min"
+          }
+        ],
+        "Rare": [
+          {
+            "source_row": 72,
+            "beam": 2004,
+            "node": 39,
+            "sign": "min"
+          }
+        ],
+        "Quasi": [
+          {
+            "source_row": 72,
+            "beam": 2004,
+            "node": 39,
+            "sign": "min"
+          }
+        ]
+      }
+    },
+    {
+      "excel_row": 235,
+      "op": "single",
+      "by_family": {
+        "ULS": [
+          {
+            "source_row": 70,
+            "beam": 1004,
+            "node": 34,
+            "sign": "min"
+          }
+        ],
+        "Rare": [
+          {
+            "source_row": 70,
+            "beam": 1004,
+            "node": 34,
+            "sign": "min"
+          }
+        ],
+        "Quasi": [
+          {
+            "source_row": 70,
+            "beam": 1004,
+            "node": 34,
+            "sign": "min"
+          }
+        ]
+      }
+    },
+    {
+      "excel_row": 236,
+      "op": "single",
+      "by_family": {
+        "ULS": [
+          {
+            "source_row": 71,
+            "beam": 2004,
+            "node": 39,
+            "sign": "max"
+          }
+        ],
+        "Rare": [
+          {
+            "source_row": 71,
+            "beam": 2004,
+            "node": 39,
+            "sign": "max"
+          }
+        ],
+        "Quasi": [
+          {
+            "source_row": 71,
+            "beam": 2004,
+            "node": 39,
+            "sign": "max"
+          }
+        ]
+      }
+    },
+    {
+      "excel_row": 237,
+      "op": "single",
+      "by_family": {
+        "ULS": [
+          {
+            "source_row": 79,
+            "beam": 1002,
+            "node": 32,
+            "sign": "max"
+          }
+        ],
+        "Rare": [
+          {
+            "source_row": 79,
+            "beam": 1002,
+            "node": 32,
+            "sign": "max"
+          }
+        ],
+        "Quasi": [
+          {
+            "source_row": 79,
+            "beam": 1002,
+            "node": 32,
+            "sign": "max"
+          }
+        ]
+      }
+    },
+    {
+      "excel_row": 238,
+      "op": "single",
+      "by_family": {
+        "ULS": [
+          {
+            "source_row": 84,
+            "beam": 2002,
+            "node": 37,
+            "sign": "min"
+          }
+        ],
+        "Rare": [
+          {
+            "source_row": 84,
+            "beam": 2002,
+            "node": 37,
+            "sign": "min"
+          }
+        ],
+        "Quasi": [
+          {
+            "source_row": 84,
+            "beam": 2002,
+            "node": 37,
+            "sign": "min"
+          }
+        ]
+      }
+    },
+    {
+      "excel_row": 239,
+      "op": "single",
+      "by_family": {
+        "ULS": [
+          {
+            "source_row": 80,
+            "beam": 1002,
+            "node": 32,
+            "sign": "min"
+          }
+        ],
+        "Rare": [
+          {
+            "source_row": 80,
+            "beam": 1002,
+            "node": 32,
+            "sign": "min"
+          }
+        ],
+        "Quasi": [
+          {
+            "source_row": 80,
+            "beam": 1002,
+            "node": 32,
+            "sign": "min"
+          }
+        ]
+      }
+    },
+    {
+      "excel_row": 240,
+      "op": "single",
+      "by_family": {
+        "ULS": [
+          {
+            "source_row": 83,
+            "beam": 2002,
+            "node": 37,
+            "sign": "max"
+          }
+        ],
+        "Rare": [
+          {
+            "source_row": 83,
+            "beam": 2002,
+            "node": 37,
+            "sign": "max"
+          }
+        ],
+        "Quasi": [
+          {
+            "source_row": 83,
+            "beam": 2002,
+            "node": 37,
+            "sign": "max"
+          }
+        ]
+      }
+    },
+    {
+      "excel_row": 241,
+      "op": "single",
+      "by_family": {
+        "ULS": [
+          {
+            "source_row": 81,
+            "beam": 1003,
+            "node": 33,
+            "sign": "max"
+          }
+        ],
+        "Rare": [
+          {
+            "source_row": 81,
+            "beam": 1003,
+            "node": 33,
+            "sign": "max"
+          }
+        ],
+        "Quasi": [
+          {
+            "source_row": 81,
+            "beam": 1003,
+            "node": 33,
+            "sign": "max"
+          }
+        ]
+      }
+    },
+    {
+      "excel_row": 242,
+      "op": "single",
+      "by_family": {
+        "ULS": [
+          {
+            "source_row": 86,
+            "beam": 2003,
+            "node": 38,
+            "sign": "min"
+          }
+        ],
+        "Rare": [
+          {
+            "source_row": 86,
+            "beam": 2003,
+            "node": 38,
+            "sign": "min"
+          }
+        ],
+        "Quasi": [
+          {
+            "source_row": 86,
+            "beam": 2003,
+            "node": 38,
+            "sign": "min"
+          }
+        ]
+      }
+    },
+    {
+      "excel_row": 243,
+      "op": "single",
+      "by_family": {
+        "ULS": [
+          {
+            "source_row": 82,
+            "beam": 1003,
+            "node": 33,
+            "sign": "min"
+          }
+        ],
+        "Rare": [
+          {
+            "source_row": 82,
+            "beam": 1003,
+            "node": 33,
+            "sign": "min"
+          }
+        ],
+        "Quasi": [
+          {
+            "source_row": 82,
+            "beam": 1003,
+            "node": 33,
+            "sign": "min"
+          }
+        ]
+      }
+    },
+    {
+      "excel_row": 244,
+      "op": "single",
+      "by_family": {
+        "ULS": [
+          {
+            "source_row": 85,
+            "beam": 2003,
+            "node": 38,
+            "sign": "max"
+          }
+        ],
+        "Rare": [
+          {
+            "source_row": 85,
+            "beam": 2003,
+            "node": 38,
+            "sign": "max"
+          }
+        ],
+        "Quasi": [
+          {
+            "source_row": 85,
+            "beam": 2003,
+            "node": 38,
+            "sign": "max"
+          }
+        ]
+      }
+    }
+  ],
+  "shear_rows": [
+    {
+      "excel_row": 259,
+      "op": "max_abs",
+      "lookup": [
+        {
+          "source_row": 17,
+          "beam": 201,
+          "node": 17,
+          "sign": "max"
+        },
+        {
+          "source_row": 18,
+          "beam": 210,
+          "node": 25,
+          "sign": "min"
+        }
+      ]
+    },
+    {
+      "excel_row": 260,
+      "op": "max_abs",
+      "lookup": [
+        {
+          "source_row": 25,
+          "beam": 202,
+          "node": 18,
+          "sign": "max"
+        },
+        {
+          "source_row": 26,
+          "beam": 209,
+          "node": 24,
+          "sign": "min"
+        }
+      ]
+    },
+    {
+      "excel_row": 261,
+      "op": "max_abs",
+      "lookup": [
+        {
+          "source_row": 9,
+          "beam": 206,
+          "node": 22,
+          "sign": "min"
+        }
+      ]
+    },
+    {
+      "excel_row": 264,
+      "op": "max_abs",
+      "lookup": [
+        {
+          "source_row": 33,
+          "beam": 101,
+          "node": 2,
+          "sign": "min"
+        },
+        {
+          "source_row": 34,
+          "beam": 114,
+          "node": 14,
+          "sign": "max"
+        }
+      ]
+    },
+    {
+      "excel_row": 265,
+      "op": "max_abs",
+      "lookup": [
+        {
+          "source_row": 41,
+          "beam": 102,
+          "node": 3,
+          "sign": "min"
+        },
+        {
+          "source_row": 42,
+          "beam": 113,
+          "node": 13,
+          "sign": "max"
+        }
+      ]
+    },
+    {
+      "excel_row": 266,
+      "op": "max_abs",
+      "lookup": [
+        {
+          "source_row": 13,
+          "beam": 109,
+          "node": 9,
+          "sign": "max"
+        }
+      ]
+    },
+    {
+      "excel_row": 269,
+      "op": "max_abs",
+      "lookup": [
+        {
+          "source_row": 49,
+          "beam": 1006,
+          "node": 36,
+          "sign": "max"
+        },
+        {
+          "source_row": 50,
+          "beam": 1006,
+          "node": 36,
+          "sign": "min"
+        }
+      ]
+    },
+    {
+      "excel_row": 270,
+      "op": "max_abs",
+      "lookup": [
+        {
+          "source_row": 53,
+          "beam": 2006,
+          "node": 41,
+          "sign": "max"
+        },
+        {
+          "source_row": 54,
+          "beam": 2006,
+          "node": 41,
+          "sign": "min"
+        }
+      ]
+    },
+    {
+      "excel_row": 271,
+      "op": "max_abs",
+      "lookup": [
+        {
+          "source_row": 51,
+          "beam": 1005,
+          "node": 35,
+          "sign": "max"
+        },
+        {
+          "source_row": 52,
+          "beam": 1005,
+          "node": 35,
+          "sign": "min"
+        }
+      ]
+    },
+    {
+      "excel_row": 272,
+      "op": "max_abs",
+      "lookup": [
+        {
+          "source_row": 55,
+          "beam": 2005,
+          "node": 40,
+          "sign": "max"
+        },
+        {
+          "source_row": 56,
+          "beam": 2005,
+          "node": 40,
+          "sign": "min"
+        }
+      ]
+    },
+    {
+      "excel_row": 273,
+      "op": "max_abs",
+      "lookup": [
+        {
+          "source_row": 69,
+          "beam": 1004,
+          "node": 34,
+          "sign": "max"
+        },
+        {
+          "source_row": 70,
+          "beam": 1004,
+          "node": 34,
+          "sign": "min"
+        }
+      ]
+    },
+    {
+      "excel_row": 274,
+      "op": "max_abs",
+      "lookup": [
+        {
+          "source_row": 71,
+          "beam": 2004,
+          "node": 39,
+          "sign": "max"
+        },
+        {
+          "source_row": 72,
+          "beam": 2004,
+          "node": 39,
+          "sign": "min"
+        }
+      ]
+    },
+    {
+      "excel_row": 275,
+      "op": "max_abs",
+      "lookup": [
+        {
+          "source_row": 79,
+          "beam": 1002,
+          "node": 32,
+          "sign": "max"
+        },
+        {
+          "source_row": 80,
+          "beam": 1002,
+          "node": 32,
+          "sign": "min"
+        }
+      ]
+    },
+    {
+      "excel_row": 276,
+      "op": "max_abs",
+      "lookup": [
+        {
+          "source_row": 83,
+          "beam": 2002,
+          "node": 37,
+          "sign": "max"
+        },
+        {
+          "source_row": 84,
+          "beam": 2002,
+          "node": 37,
+          "sign": "min"
+        }
+      ]
+    },
+    {
+      "excel_row": 277,
+      "op": "max_abs",
+      "lookup": [
+        {
+          "source_row": 81,
+          "beam": 1003,
+          "node": 33,
+          "sign": "max"
+        },
+        {
+          "source_row": 82,
+          "beam": 1003,
+          "node": 33,
+          "sign": "min"
+        }
+      ]
+    },
+    {
+      "excel_row": 278,
+      "op": "max_abs",
+      "lookup": [
+        {
+          "source_row": 85,
+          "beam": 2003,
+          "node": 38,
+          "sign": "max"
+        },
+        {
+          "source_row": 86,
+          "beam": 2003,
+          "node": 38,
+          "sign": "min"
+        }
+      ]
+    }
+  ]
+}

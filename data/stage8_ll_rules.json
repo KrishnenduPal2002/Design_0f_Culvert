@@ -1,0 +1,2820 @@
+{
+  "fixture_type": "vehicle-ll-formula-metadata-only",
+  "source_sheet": "load",
+  "source_workbook": "Design of Culvert 1x3x3 (Fill=0.3m)(2).xlsx",
+  "note": "Formula references only. No source output answers enter FEM predictions.",
+  "moment": [
+    {
+      "excel_row": 215,
+      "rules": {
+        "ULS LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL13",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL13",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL13",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL13",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MAX(1.5*'Output(70R(W)'!AL13,1.5*'Output(40T)'!AL13,1.5*'Output(70R(T))'!AL13,1*'Output(SV)'!AL13)"
+        },
+        "Rare LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL13",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL13",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL13",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL13",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MAX(1*'Output(70R(W)'!AL13,1*'Output(40T)'!AL13,1*'Output(70R(T))'!AL13,1*'Output(SV)'!AL13)"
+        },
+        "Quasi LL": {
+          "operation": "literal_zero",
+          "outer_factor": 0.0,
+          "terms": [],
+          "source_formula": ""
+        }
+      }
+    },
+    {
+      "excel_row": 216,
+      "rules": {
+        "ULS LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL15",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL15",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL15",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL15",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MAX(1.5*'Output(70R(W)'!AL15,1.5*'Output(40T)'!AL15,1.5*'Output(70R(T))'!AL15,1*'Output(SV)'!AL15)"
+        },
+        "Rare LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL15",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL15",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL15",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL15",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MAX(1*'Output(70R(W)'!AL15,1*'Output(40T)'!AL15,1*'Output(70R(T))'!AL15,1*'Output(SV)'!AL15)"
+        },
+        "Quasi LL": {
+          "operation": "literal_zero",
+          "outer_factor": 0.0,
+          "terms": [],
+          "source_formula": ""
+        }
+      }
+    },
+    {
+      "excel_row": 217,
+      "rules": {
+        "ULS LL": {
+          "operation": "min",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL9",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL9",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL9",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL9",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MIN(1.5*'Output(70R(W)'!AL9,1.5*'Output(40T)'!AL9,1.5*'Output(70R(T))'!AL9,1*'Output(SV)'!AL9)"
+        },
+        "Rare LL": {
+          "operation": "min",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL9",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL9",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL9",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL9",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MIN(1*'Output(70R(W)'!AL9,1*'Output(40T)'!AL9,1*'Output(70R(T))'!AL9,1*'Output(SV)'!AL9)"
+        },
+        "Quasi LL": {
+          "operation": "literal_zero",
+          "outer_factor": 0.0,
+          "terms": [],
+          "source_formula": ""
+        }
+      }
+    },
+    {
+      "excel_row": 220,
+      "rules": {
+        "ULS LL": {
+          "operation": "min",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL21",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL21",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL21",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL21",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MIN(1.5*'Output(70R(W)'!AL21,1.5*'Output(40T)'!AL21,1.5*'Output(70R(T))'!AL21,1*'Output(SV)'!AL21)"
+        },
+        "Rare LL": {
+          "operation": "min",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL21",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL21",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL21",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL21",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MIN(1*'Output(70R(W)'!AL21,1*'Output(40T)'!AL21,1*'Output(70R(T))'!AL21,1*'Output(SV)'!AL21)"
+        },
+        "Quasi LL": {
+          "operation": "literal_zero",
+          "outer_factor": 0.0,
+          "terms": [],
+          "source_formula": ""
+        }
+      }
+    },
+    {
+      "excel_row": 221,
+      "rules": {
+        "ULS LL": {
+          "operation": "min",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL23",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL23",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL23",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL23",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MIN(1.5*'Output(70R(W)'!AL23,1.5*'Output(40T)'!AL23,1.5*'Output(70R(T))'!AL23,1*'Output(SV)'!AL23)"
+        },
+        "Rare LL": {
+          "operation": "min",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL23",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL23",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL23",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL23",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MIN(1*'Output(70R(W)'!AL23,1*'Output(40T)'!AL23,1*'Output(70R(T))'!AL23,1*'Output(SV)'!AL23)"
+        },
+        "Quasi LL": {
+          "operation": "literal_zero",
+          "outer_factor": 0.0,
+          "terms": [],
+          "source_formula": ""
+        }
+      }
+    },
+    {
+      "excel_row": 222,
+      "rules": {
+        "ULS LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL11",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL11",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL11",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL11",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MAX(1.5*'Output(70R(W)'!AL11,1.5*'Output(40T)'!AL11,1.5*'Output(70R(T))'!AL11,1*'Output(SV)'!AL11)"
+        },
+        "Rare LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL11",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL11",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL11",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL11",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MAX(1*'Output(70R(W)'!AL11,1*'Output(40T)'!AL11,1*'Output(70R(T))'!AL11,1*'Output(SV)'!AL11)"
+        },
+        "Quasi LL": {
+          "operation": "literal_zero",
+          "outer_factor": 0.0,
+          "terms": [],
+          "source_formula": ""
+        }
+      }
+    },
+    {
+      "excel_row": 225,
+      "rules": {
+        "ULS LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL29",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL29",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL29",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL29",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MAX(1.5*'Output(70R(W)'!AL29,1.5*'Output(40T)'!AL29,1.5*'Output(70R(T))'!AL29,1*'Output(SV)'!AL29)"
+        },
+        "Rare LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL29",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL29",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL29",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL29",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MAX(1*'Output(70R(W)'!AL29,1*'Output(40T)'!AL29,1*'Output(70R(T))'!AL29,1*'Output(SV)'!AL29)"
+        },
+        "Quasi LL": {
+          "operation": "literal_zero",
+          "outer_factor": 0.0,
+          "terms": [],
+          "source_formula": ""
+        }
+      }
+    },
+    {
+      "excel_row": 226,
+      "rules": {
+        "ULS LL": {
+          "operation": "min",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL30",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL30",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL30",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL30",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MIN(1.5*'Output(70R(W)'!AL30,1.5*'Output(40T)'!AL30,1.5*'Output(70R(T))'!AL30,1*'Output(SV)'!AL30)"
+        },
+        "Rare LL": {
+          "operation": "min",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL30",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL30",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL30",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL30",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MIN(1*'Output(70R(W)'!AL30,1*'Output(40T)'!AL30,1*'Output(70R(T))'!AL30,1*'Output(SV)'!AL30)"
+        },
+        "Quasi LL": {
+          "operation": "literal_zero",
+          "outer_factor": 0.0,
+          "terms": [],
+          "source_formula": ""
+        }
+      }
+    },
+    {
+      "excel_row": 227,
+      "rules": {
+        "ULS LL": {
+          "operation": "min",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL31",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL31",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL31",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL31",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MIN(1.5*'Output(70R(W)'!AL31,1.5*'Output(40T)'!AL31,1.5*'Output(70R(T))'!AL31,1*'Output(SV)'!AL31)"
+        },
+        "Rare LL": {
+          "operation": "min",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL31",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL31",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL31",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL31",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MIN(1*'Output(70R(W)'!AL31,1*'Output(40T)'!AL31,1*'Output(70R(T))'!AL31,1*'Output(SV)'!AL31)"
+        },
+        "Quasi LL": {
+          "operation": "literal_zero",
+          "outer_factor": 0.0,
+          "terms": [],
+          "source_formula": ""
+        }
+      }
+    },
+    {
+      "excel_row": 228,
+      "rules": {
+        "ULS LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL32",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL32",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL32",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL32",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MAX(1.5*'Output(70R(W)'!AL32,1.5*'Output(40T)'!AL32,1.5*'Output(70R(T))'!AL32,1*'Output(SV)'!AL32)"
+        },
+        "Rare LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL32",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL32",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL32",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL32",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MAX(1*'Output(70R(W)'!AL32,1*'Output(40T)'!AL32,1*'Output(70R(T))'!AL32,1*'Output(SV)'!AL32)"
+        },
+        "Quasi LL": {
+          "operation": "literal_zero",
+          "outer_factor": 0.0,
+          "terms": [],
+          "source_formula": ""
+        }
+      }
+    },
+    {
+      "excel_row": 229,
+      "rules": {
+        "ULS LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL33",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL33",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL33",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL33",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MAX(1.5*'Output(70R(W)'!AL33,1.5*'Output(40T)'!AL33,1.5*'Output(70R(T))'!AL33,1*'Output(SV)'!AL33)"
+        },
+        "Rare LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL33",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL33",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL33",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL33",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MAX(1*'Output(70R(W)'!AL33,1*'Output(40T)'!AL33,1*'Output(70R(T))'!AL33,1*'Output(SV)'!AL33)"
+        },
+        "Quasi LL": {
+          "operation": "literal_zero",
+          "outer_factor": 0.0,
+          "terms": [],
+          "source_formula": ""
+        }
+      }
+    },
+    {
+      "excel_row": 230,
+      "rules": {
+        "ULS LL": {
+          "operation": "min",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL34",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL34",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL34",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL34",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MIN(1.5*'Output(70R(W)'!AL34,1.5*'Output(40T)'!AL34,1.5*'Output(70R(T))'!AL34,1*'Output(SV)'!AL34)"
+        },
+        "Rare LL": {
+          "operation": "min",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL34",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL34",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL34",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL34",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MIN(1*'Output(70R(W)'!AL34,1*'Output(40T)'!AL34,1*'Output(70R(T))'!AL34,1*'Output(SV)'!AL34)"
+        },
+        "Quasi LL": {
+          "operation": "literal_zero",
+          "outer_factor": 0.0,
+          "terms": [],
+          "source_formula": ""
+        }
+      }
+    },
+    {
+      "excel_row": 231,
+      "rules": {
+        "ULS LL": {
+          "operation": "min",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL35",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL35",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL35",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL35",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MIN(1.5*'Output(70R(W)'!AL35,1.5*'Output(40T)'!AL35,1.5*'Output(70R(T))'!AL35,1*'Output(SV)'!AL35)"
+        },
+        "Rare LL": {
+          "operation": "min",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL35",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL35",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL35",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL35",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MIN(1*'Output(70R(W)'!AL35,1*'Output(40T)'!AL35,1*'Output(70R(T))'!AL35,1*'Output(SV)'!AL35)"
+        },
+        "Quasi LL": {
+          "operation": "literal_zero",
+          "outer_factor": 0.0,
+          "terms": [],
+          "source_formula": ""
+        }
+      }
+    },
+    {
+      "excel_row": 232,
+      "rules": {
+        "ULS LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL36",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL36",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL36",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL36",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MAX(1.5*'Output(70R(W)'!AL36,1.5*'Output(40T)'!AL36,1.5*'Output(70R(T))'!AL36,1*'Output(SV)'!AL36)"
+        },
+        "Rare LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL36",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL36",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL36",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL36",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MAX(1*'Output(70R(W)'!AL36,1*'Output(40T)'!AL36,1*'Output(70R(T))'!AL36,1*'Output(SV)'!AL36)"
+        },
+        "Quasi LL": {
+          "operation": "literal_zero",
+          "outer_factor": 0.0,
+          "terms": [],
+          "source_formula": ""
+        }
+      }
+    },
+    {
+      "excel_row": 233,
+      "rules": {
+        "ULS LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL37",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL37",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL37",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL37",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MAX(1.5*'Output(70R(W)'!AL37,1.5*'Output(40T)'!AL37,1.5*'Output(70R(T))'!AL37,1*'Output(SV)'!AL37)"
+        },
+        "Rare LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL37",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL37",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL37",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL37",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MAX(1*'Output(70R(W)'!AL37,1*'Output(40T)'!AL37,1*'Output(70R(T))'!AL37,1*'Output(SV)'!AL37)"
+        },
+        "Quasi LL": {
+          "operation": "literal_zero",
+          "outer_factor": 0.0,
+          "terms": [],
+          "source_formula": ""
+        }
+      }
+    },
+    {
+      "excel_row": 234,
+      "rules": {
+        "ULS LL": {
+          "operation": "min",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL38",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL38",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL38",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL38",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MIN(1.5*'Output(70R(W)'!AL38,1.5*'Output(40T)'!AL38,1.5*'Output(70R(T))'!AL38,1*'Output(SV)'!AL38)"
+        },
+        "Rare LL": {
+          "operation": "min",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL38",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL38",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL38",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL38",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MIN(1*'Output(70R(W)'!AL38,1*'Output(40T)'!AL38,1*'Output(70R(T))'!AL38,1*'Output(SV)'!AL38)"
+        },
+        "Quasi LL": {
+          "operation": "literal_zero",
+          "outer_factor": 0.0,
+          "terms": [],
+          "source_formula": ""
+        }
+      }
+    },
+    {
+      "excel_row": 235,
+      "rules": {
+        "ULS LL": {
+          "operation": "min",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL39",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL39",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL39",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL39",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MIN(1.5*'Output(70R(W)'!AL39,1.5*'Output(40T)'!AL39,1.5*'Output(70R(T))'!AL39,1*'Output(SV)'!AL39)"
+        },
+        "Rare LL": {
+          "operation": "min",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL39",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL39",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL39",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL39",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MIN(1*'Output(70R(W)'!AL39,1*'Output(40T)'!AL39,1*'Output(70R(T))'!AL39,1*'Output(SV)'!AL39)"
+        },
+        "Quasi LL": {
+          "operation": "literal_zero",
+          "outer_factor": 0.0,
+          "terms": [],
+          "source_formula": ""
+        }
+      }
+    },
+    {
+      "excel_row": 236,
+      "rules": {
+        "ULS LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL40",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL40",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL40",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL40",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MAX(1.5*'Output(70R(W)'!AL40,1.5*'Output(40T)'!AL40,1.5*'Output(70R(T))'!AL40,1*'Output(SV)'!AL40)"
+        },
+        "Rare LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL40",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL40",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL40",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL40",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MAX(1*'Output(70R(W)'!AL40,1*'Output(40T)'!AL40,1*'Output(70R(T))'!AL40,1*'Output(SV)'!AL40)"
+        },
+        "Quasi LL": {
+          "operation": "literal_zero",
+          "outer_factor": 0.0,
+          "terms": [],
+          "source_formula": ""
+        }
+      }
+    },
+    {
+      "excel_row": 237,
+      "rules": {
+        "ULS LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL41",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL41",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL41",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL41",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MAX(1.5*'Output(70R(W)'!AL41,1.5*'Output(40T)'!AL41,1.5*'Output(70R(T))'!AL41,1*'Output(SV)'!AL41)"
+        },
+        "Rare LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL41",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL41",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL41",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL41",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MAX(1*'Output(70R(W)'!AL41,1*'Output(40T)'!AL41,1*'Output(70R(T))'!AL41,1*'Output(SV)'!AL41)"
+        },
+        "Quasi LL": {
+          "operation": "literal_zero",
+          "outer_factor": 0.0,
+          "terms": [],
+          "source_formula": ""
+        }
+      }
+    },
+    {
+      "excel_row": 238,
+      "rules": {
+        "ULS LL": {
+          "operation": "min",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL42",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL42",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL42",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL42",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MIN(1.5*'Output(70R(W)'!AL42,1.5*'Output(40T)'!AL42,1.5*'Output(70R(T))'!AL42,1*'Output(SV)'!AL42)"
+        },
+        "Rare LL": {
+          "operation": "min",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL42",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL42",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL42",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL42",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MIN(1*'Output(70R(W)'!AL42,1*'Output(40T)'!AL42,1*'Output(70R(T))'!AL42,1*'Output(SV)'!AL42)"
+        },
+        "Quasi LL": {
+          "operation": "literal_zero",
+          "outer_factor": 0.0,
+          "terms": [],
+          "source_formula": ""
+        }
+      }
+    },
+    {
+      "excel_row": 239,
+      "rules": {
+        "ULS LL": {
+          "operation": "min",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL43",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL43",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL43",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL43",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MIN(1.5*'Output(70R(W)'!AL43,1.5*'Output(40T)'!AL43,1.5*'Output(70R(T))'!AL43,1*'Output(SV)'!AL43)"
+        },
+        "Rare LL": {
+          "operation": "min",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL43",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL43",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL43",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL43",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MIN(1*'Output(70R(W)'!AL43,1*'Output(40T)'!AL43,1*'Output(70R(T))'!AL43,1*'Output(SV)'!AL43)"
+        },
+        "Quasi LL": {
+          "operation": "literal_zero",
+          "outer_factor": 0.0,
+          "terms": [],
+          "source_formula": ""
+        }
+      }
+    },
+    {
+      "excel_row": 240,
+      "rules": {
+        "ULS LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL44",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL44",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL44",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL44",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MAX(1.5*'Output(70R(W)'!AL44,1.5*'Output(40T)'!AL44,1.5*'Output(70R(T))'!AL44,1*'Output(SV)'!AL44)"
+        },
+        "Rare LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL44",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL44",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL44",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL44",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MAX(1*'Output(70R(W)'!AL44,1*'Output(40T)'!AL44,1*'Output(70R(T))'!AL44,1*'Output(SV)'!AL44)"
+        },
+        "Quasi LL": {
+          "operation": "literal_zero",
+          "outer_factor": 0.0,
+          "terms": [],
+          "source_formula": ""
+        }
+      }
+    },
+    {
+      "excel_row": 241,
+      "rules": {
+        "ULS LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL45",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL45",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL45",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL45",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MAX(1.5*'Output(70R(W)'!AL45,1.5*'Output(40T)'!AL45,1.5*'Output(70R(T))'!AL45,1*'Output(SV)'!AL45)"
+        },
+        "Rare LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL45",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL45",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL45",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL45",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MAX(1*'Output(70R(W)'!AL45,1*'Output(40T)'!AL45,1*'Output(70R(T))'!AL45,1*'Output(SV)'!AL45)"
+        },
+        "Quasi LL": {
+          "operation": "literal_zero",
+          "outer_factor": 0.0,
+          "terms": [],
+          "source_formula": ""
+        }
+      }
+    },
+    {
+      "excel_row": 242,
+      "rules": {
+        "ULS LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL46",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL46",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL46",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL46",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MAX(1.5*'Output(70R(W)'!AL46,1.5*'Output(40T)'!AL46,1.5*'Output(70R(T))'!AL46,1*'Output(SV)'!AL46)"
+        },
+        "Rare LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL46",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL46",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL46",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL46",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MAX(1*'Output(70R(W)'!AL46,1*'Output(40T)'!AL46,1*'Output(70R(T))'!AL46,1*'Output(SV)'!AL46)"
+        },
+        "Quasi LL": {
+          "operation": "literal_zero",
+          "outer_factor": 0.0,
+          "terms": [],
+          "source_formula": ""
+        }
+      }
+    },
+    {
+      "excel_row": 243,
+      "rules": {
+        "ULS LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL47",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL47",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL47",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL47",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MAX(1.5*'Output(70R(W)'!AL47,1.5*'Output(40T)'!AL47,1.5*'Output(70R(T))'!AL47,1*'Output(SV)'!AL47)"
+        },
+        "Rare LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL47",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL47",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL47",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL47",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MAX(1*'Output(70R(W)'!AL47,1*'Output(40T)'!AL47,1*'Output(70R(T))'!AL47,1*'Output(SV)'!AL47)"
+        },
+        "Quasi LL": {
+          "operation": "literal_zero",
+          "outer_factor": 0.0,
+          "terms": [],
+          "source_formula": ""
+        }
+      }
+    },
+    {
+      "excel_row": 244,
+      "rules": {
+        "ULS LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL48",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL48",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL48",
+              "factor": 1.5,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL48",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MAX(1.5*'Output(70R(W)'!AL48,1.5*'Output(40T)'!AL48,1.5*'Output(70R(T))'!AL48,1*'Output(SV)'!AL48)"
+        },
+        "Rare LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AL48",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AL48",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AL48",
+              "factor": 1.0,
+              "abs": false
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AL48",
+              "factor": 1.0,
+              "abs": false
+            }
+          ],
+          "source_formula": "=MAX(1*'Output(70R(W)'!AL48,1*'Output(40T)'!AL48,1*'Output(70R(T))'!AL48,1*'Output(SV)'!AL48)"
+        },
+        "Quasi LL": {
+          "operation": "literal_zero",
+          "outer_factor": 0.0,
+          "terms": [],
+          "source_formula": ""
+        }
+      }
+    }
+  ],
+  "shear": [
+    {
+      "excel_row": 259,
+      "rules": {
+        "LL": {
+          "operation": "max",
+          "outer_factor": 0.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AT14",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rw",
+              "cell": "AT15",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AT14",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AT15",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AT14",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AT15",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AT16",
+              "factor": 1.0,
+              "abs": true
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AT17",
+              "factor": 1.0,
+              "abs": true
+            }
+          ],
+          "source_formula": "=0*MAX(1.5*ABS('Output(70R(W)'!AT14),1.5*ABS('Output(70R(W)'!AT15),1.5*ABS('Output(40T)'!AT14),1.5*ABS('Output(40T)'!AT15),1.5*ABS('Output(70R(T))'!AT14),1.5*ABS('Output(70R(T))'!AT15),1*ABS('Output(SV)'!AT16),1*ABS('Output(SV)'!AT17))"
+        }
+      }
+    },
+    {
+      "excel_row": 260,
+      "rules": {
+        "LL": {
+          "operation": "max",
+          "outer_factor": 0.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AT16",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rw",
+              "cell": "AT17",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AT16",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AT17",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AT16",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AT17",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AT16",
+              "factor": 1.0,
+              "abs": true
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AT17",
+              "factor": 1.0,
+              "abs": true
+            }
+          ],
+          "source_formula": "=0*MAX(1.5*ABS('Output(70R(W)'!AT16),1.5*ABS('Output(70R(W)'!AT17),1.5*ABS('Output(40T)'!AT16),1.5*ABS('Output(40T)'!AT17),1.5*ABS('Output(70R(T))'!AT16),1.5*ABS('Output(70R(T))'!AT17),1*ABS('Output(SV)'!AT16),1*ABS('Output(SV)'!AT17))"
+        }
+      }
+    },
+    {
+      "excel_row": 261,
+      "rules": {
+        "LL": {
+          "operation": "max",
+          "outer_factor": 0.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AT10",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AT10",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AT10",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AT10",
+              "factor": 1.0,
+              "abs": true
+            }
+          ],
+          "source_formula": "=0*MAX(1.5*ABS('Output(70R(W)'!AT10),1.5*ABS('Output(40T)'!AT10),1.5*ABS('Output(70R(T))'!AT10),1*ABS('Output(SV)'!AT10))"
+        }
+      }
+    },
+    {
+      "excel_row": 264,
+      "rules": {
+        "LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AT22",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rw",
+              "cell": "AT23",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AT22",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AT23",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AT22",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AT23",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AT22",
+              "factor": 1.0,
+              "abs": true
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AT23",
+              "factor": 1.0,
+              "abs": true
+            }
+          ],
+          "source_formula": "=(MAX(1.5*ABS('Output(70R(W)'!AT22),1.5*ABS('Output(70R(W)'!AT23),1.5*ABS('Output(40T)'!AT22),1.5*ABS('Output(40T)'!AT23),1.5*ABS('Output(70R(T))'!AT22),1.5*ABS('Output(70R(T))'!AT23),1*ABS('Output(SV)'!AT22),1*ABS('Output(SV)'!AT23)))"
+        }
+      }
+    },
+    {
+      "excel_row": 265,
+      "rules": {
+        "LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AT24",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rw",
+              "cell": "AT25",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AT24",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AT25",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AT24",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AT25",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AT24",
+              "factor": 1.0,
+              "abs": true
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AT25",
+              "factor": 1.0,
+              "abs": true
+            }
+          ],
+          "source_formula": "=(MAX(1.5*ABS('Output(70R(W)'!AT24),1.5*ABS('Output(70R(W)'!AT25),1.5*ABS('Output(40T)'!AT24),1.5*ABS('Output(40T)'!AT25),1.5*ABS('Output(70R(T))'!AT24),1.5*ABS('Output(70R(T))'!AT25),1*ABS('Output(SV)'!AT24),1*ABS('Output(SV)'!AT25)))"
+        }
+      }
+    },
+    {
+      "excel_row": 266,
+      "rules": {
+        "LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AT12",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AT12",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AT12",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AT12",
+              "factor": 1.0,
+              "abs": true
+            }
+          ],
+          "source_formula": "=MAX(1.5*ABS('Output(70R(W)'!AT12),1.5*ABS('Output(40T)'!AT12),1.5*ABS('Output(70R(T))'!AT12),1*ABS('Output(SV)'!AT12))"
+        }
+      }
+    },
+    {
+      "excel_row": 269,
+      "rules": {
+        "LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AT30",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rw",
+              "cell": "AT31",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AT30",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AT31",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AT30",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AT31",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AT30",
+              "factor": 1.0,
+              "abs": true
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AT31",
+              "factor": 1.0,
+              "abs": true
+            }
+          ],
+          "source_formula": "=MAX(1.5*ABS('Output(70R(W)'!AT30),1.5*ABS('Output(70R(W)'!AT31),1.5*ABS('Output(40T)'!AT30),1.5*ABS('Output(40T)'!AT31),1.5*ABS('Output(70R(T))'!AT30),1.5*ABS('Output(70R(T))'!AT31),1*ABS('Output(SV)'!AT30),1*ABS('Output(SV)'!AT31))"
+        }
+      }
+    },
+    {
+      "excel_row": 270,
+      "rules": {
+        "LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AT32",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rw",
+              "cell": "AT33",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AT32",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AT33",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AT32",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AT33",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AT32",
+              "factor": 1.0,
+              "abs": true
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AT33",
+              "factor": 1.0,
+              "abs": true
+            }
+          ],
+          "source_formula": "=((MAX(1.5*ABS('Output(70R(W)'!AT32),1.5*ABS('Output(70R(W)'!AT33),1.5*ABS('Output(40T)'!AT32),1.5*ABS('Output(40T)'!AT33),1.5*ABS('Output(70R(T))'!AT32),1.5*ABS('Output(70R(T))'!AT33),1*ABS('Output(SV)'!AT32),1*ABS('Output(SV)'!AT33))))"
+        }
+      }
+    },
+    {
+      "excel_row": 271,
+      "rules": {
+        "LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AT34",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rw",
+              "cell": "AT35",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AT34",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AT35",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AT34",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AT35",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AT34",
+              "factor": 1.0,
+              "abs": true
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AT35",
+              "factor": 1.0,
+              "abs": true
+            }
+          ],
+          "source_formula": "=MAX(1.5*ABS('Output(70R(W)'!AT34),1.5*ABS('Output(70R(W)'!AT35),1.5*ABS('Output(40T)'!AT34),1.5*ABS('Output(40T)'!AT35),1.5*ABS('Output(70R(T))'!AT34),1.5*ABS('Output(70R(T))'!AT35),1*ABS('Output(SV)'!AT34),1*ABS('Output(SV)'!AT35))"
+        }
+      }
+    },
+    {
+      "excel_row": 272,
+      "rules": {
+        "LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AT36",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rw",
+              "cell": "AT37",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AT36",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AT37",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AT36",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AT37",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AT36",
+              "factor": 1.0,
+              "abs": true
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AT37",
+              "factor": 1.0,
+              "abs": true
+            }
+          ],
+          "source_formula": "=MAX(1.5*ABS('Output(70R(W)'!AT36),1.5*ABS('Output(70R(W)'!AT37),1.5*ABS('Output(40T)'!AT36),1.5*ABS('Output(40T)'!AT37),1.5*ABS('Output(70R(T))'!AT36),1.5*ABS('Output(70R(T))'!AT37),1*ABS('Output(SV)'!AT36),1*ABS('Output(SV)'!AT37))"
+        }
+      }
+    },
+    {
+      "excel_row": 273,
+      "rules": {
+        "LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AT42",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rw",
+              "cell": "AT43",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AT42",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AT43",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AT42",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AT43",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AT42",
+              "factor": 1.0,
+              "abs": true
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AT43",
+              "factor": 1.0,
+              "abs": true
+            }
+          ],
+          "source_formula": "=MAX(1.5*ABS('Output(70R(W)'!AT42),1.5*ABS('Output(70R(W)'!AT43),1.5*ABS('Output(40T)'!AT42),1.5*ABS('Output(40T)'!AT43),1.5*ABS('Output(70R(T))'!AT42),1.5*ABS('Output(70R(T))'!AT43),1*ABS('Output(SV)'!AT42),1*ABS('Output(SV)'!AT43))"
+        }
+      }
+    },
+    {
+      "excel_row": 274,
+      "rules": {
+        "LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AT44",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rw",
+              "cell": "AT45",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AT44",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AT45",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AT44",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AT45",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AT44",
+              "factor": 1.0,
+              "abs": true
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AT45",
+              "factor": 1.0,
+              "abs": true
+            }
+          ],
+          "source_formula": "=MAX(1.5*ABS('Output(70R(W)'!AT44),1.5*ABS('Output(70R(W)'!AT45),1.5*ABS('Output(40T)'!AT44),1.5*ABS('Output(40T)'!AT45),1.5*ABS('Output(70R(T))'!AT44),1.5*ABS('Output(70R(T))'!AT45),1*ABS('Output(SV)'!AT44),1*ABS('Output(SV)'!AT45))"
+        }
+      }
+    },
+    {
+      "excel_row": 275,
+      "rules": {
+        "LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AT48",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rw",
+              "cell": "AT49",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AT48",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AT49",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AT48",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AT49",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AT48",
+              "factor": 1.0,
+              "abs": true
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AT49",
+              "factor": 1.0,
+              "abs": true
+            }
+          ],
+          "source_formula": "=MAX(1.5*ABS('Output(70R(W)'!AT48),1.5*ABS('Output(70R(W)'!AT49),1.5*ABS('Output(40T)'!AT48),1.5*ABS('Output(40T)'!AT49),1.5*ABS('Output(70R(T))'!AT48),1.5*ABS('Output(70R(T))'!AT49),1*ABS('Output(SV)'!AT48),1*ABS('Output(SV)'!AT49))"
+        }
+      }
+    },
+    {
+      "excel_row": 276,
+      "rules": {
+        "LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AT50",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rw",
+              "cell": "AT51",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AT50",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AT51",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AT50",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AT51",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AT50",
+              "factor": 1.0,
+              "abs": true
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AT51",
+              "factor": 1.0,
+              "abs": true
+            }
+          ],
+          "source_formula": "=MAX(1.5*ABS('Output(70R(W)'!AT50),1.5*ABS('Output(70R(W)'!AT51),1.5*ABS('Output(40T)'!AT50),1.5*ABS('Output(40T)'!AT51),1.5*ABS('Output(70R(T))'!AT50),1.5*ABS('Output(70R(T))'!AT51),1*ABS('Output(SV)'!AT50),1*ABS('Output(SV)'!AT51))"
+        }
+      }
+    },
+    {
+      "excel_row": 277,
+      "rules": {
+        "LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AT52",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rw",
+              "cell": "AT53",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AT52",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AT53",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AT52",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AT53",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AT52",
+              "factor": 1.0,
+              "abs": true
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AT53",
+              "factor": 1.0,
+              "abs": true
+            }
+          ],
+          "source_formula": "=MAX(1.5*ABS('Output(70R(W)'!AT52),1.5*ABS('Output(70R(W)'!AT53),1.5*ABS('Output(40T)'!AT52),1.5*ABS('Output(40T)'!AT53),1.5*ABS('Output(70R(T))'!AT52),1.5*ABS('Output(70R(T))'!AT53),1*ABS('Output(SV)'!AT52),1*ABS('Output(SV)'!AT53))"
+        }
+      }
+    },
+    {
+      "excel_row": 278,
+      "rules": {
+        "LL": {
+          "operation": "max",
+          "outer_factor": 1.0,
+          "terms": [
+            {
+              "vehicle": "70rw",
+              "cell": "AT54",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rw",
+              "cell": "AT55",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AT54",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "40t",
+              "cell": "AT55",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AT54",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "70rt",
+              "cell": "AT55",
+              "factor": 1.5,
+              "abs": true
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AT54",
+              "factor": 1.0,
+              "abs": true
+            },
+            {
+              "vehicle": "sv385",
+              "cell": "AT55",
+              "factor": 1.0,
+              "abs": true
+            }
+          ],
+          "source_formula": "=MAX(1.5*ABS('Output(70R(W)'!AT54),1.5*ABS('Output(70R(W)'!AT55),1.5*ABS('Output(40T)'!AT54),1.5*ABS('Output(40T)'!AT55),1.5*ABS('Output(70R(T))'!AT54),1.5*ABS('Output(70R(T))'!AT55),1*ABS('Output(SV)'!AT54),1*ABS('Output(SV)'!AT55))"
+        }
+      }
+    }
+  ]
+}

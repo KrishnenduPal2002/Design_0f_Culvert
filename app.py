@@ -1511,7 +1511,7 @@ def _cached_design_normal_moments(current_inputs, solver_options):
 
 @st.cache_data(show_spinner=False, max_entries=4)
 def _cached_four_vehicle_ll_for_live_tables(current_inputs, modulus_gpa, scan_spacing,
-                                            chosen_vehicle, chosen_vehicle_inputs):
+                                            mesh_divisions, chosen_vehicle, chosen_vehicle_inputs):
     """Pure-by-input live FEM evaluation; reruns on changed geometry/load values.
 
     Cached results are never represented as validated design actions.  The
@@ -1521,6 +1521,7 @@ def _cached_four_vehicle_ll_for_live_tables(current_inputs, modulus_gpa, scan_sp
         current_inputs, default_design_moment_rows(), default_design_shear_rows(),
         data_dir=Path(__file__).resolve().parent / 'data',
         elastic_modulus_gpa=modulus_gpa, scan_step_m=scan_spacing,
+        mesh_divisions_per_member=mesh_divisions,
         selected_vehicle_code=(chosen_vehicle if chosen_vehicle in
                                ('70rw', '40t', '70rt', 'sv385') else None),
         selected_vehicle_inputs=chosen_vehicle_inputs,
@@ -1549,6 +1550,7 @@ with design_moment_calc_tab:
                         data_dir=Path(__file__).resolve().parent/'data',
                         elastic_modulus_gpa=frame_options.concrete_elastic_modulus_gpa,
                         scan_step_m=ll_scan_step,
+                        mesh_divisions_per_member=frame_options.mesh_divisions_per_member,
                         selected_vehicle_code=vehicle_code if vehicle_code in
                             ('70rw','40t','70rt','sv385') else None,
                         selected_vehicle_inputs=vehicle_inputs,
@@ -1556,6 +1558,7 @@ with design_moment_calc_tab:
                 st.session_state['ll_comparison_result'] = ll_check
                 st.session_state['ll_comparison_input_fingerprint'] = repr((
                     inputs, frame_options.concrete_elastic_modulus_gpa,
+                    frame_options.mesh_divisions_per_member,
                     ll_scan_step, vehicle_code, vehicle_inputs,
                 ))
             except (ValueError, TypeError, KeyError, OSError, RuntimeError) as exc:
@@ -1563,6 +1566,7 @@ with design_moment_calc_tab:
         prior_ll=st.session_state.get('ll_comparison_result')
         if prior_ll is not None:
             current_fingerprint=repr((inputs, frame_options.concrete_elastic_modulus_gpa,
+                                      frame_options.mesh_divisions_per_member,
                                       ll_scan_step, vehicle_code, vehicle_inputs))
             if st.session_state.get('ll_comparison_input_fingerprint')!=current_fingerprint:
                 st.warning('Design Inputs changed. Click Calculate again: the earlier '
@@ -1593,7 +1597,8 @@ with design_moment_calc_tab:
             with st.spinner('Recalculating four-vehicle LL for current Design Inputs...'):
                 _live_ll_for_tables = _cached_four_vehicle_ll_for_live_tables(
                     inputs, float(frame_options.concrete_elastic_modulus_gpa),
-                    float(ll_scan_step), vehicle_code, vehicle_inputs,
+                    float(ll_scan_step), int(frame_options.mesh_divisions_per_member),
+                    vehicle_code, vehicle_inputs,
                 )
             st.caption('Four-vehicle LL component comparisons within 0.025: '
                        f"{_live_ll_for_tables['matched']}/{_live_ll_for_tables['tested']}. "

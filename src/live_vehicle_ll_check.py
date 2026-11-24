@@ -19,7 +19,7 @@ VEHICLES = ('70rw', '40t', '70rt', 'sv385')
 
 def calculate_four_vehicle_ll(inputs, reference_moments, reference_shears, *,
                               data_dir, elastic_modulus_gpa=32., scan_step_m=.25,
-                              selected_vehicle_code=None, selected_vehicle_inputs=None):
+                              mesh_divisions_per_member=8, selected_vehicle_code=None, selected_vehicle_inputs=None):
     """Return live predictions, comparisons, and a strong validation status.
 
     All vehicle runs use the independent FEM at current geometry/subgrade.
@@ -27,11 +27,13 @@ def calculate_four_vehicle_ll(inputs, reference_moments, reference_shears, *,
     """
     if len(reference_moments) != 26 or len(reference_shears) != 16:
         raise ValueError('Reference tables must contain 26 moment and 16 shear rows')
+    if isinstance(mesh_divisions_per_member, bool) or not (2 <= int(mesh_divisions_per_member) <= 24):
+        raise ValueError('Vehicle FEM mesh divisions must be between 2 and 24')
     folder=Path(data_dir)
     options=FrameOptions(
         concrete_elastic_modulus_gpa=float(elastic_modulus_gpa),
         foundation_modulus_tf_m3=float(inputs.subgrade_reaction_modulus_tf_m3),
-        mesh_divisions_per_member=8, compression_only_springs=False,
+        mesh_divisions_per_member=int(mesh_divisions_per_member), compression_only_springs=False,
         sidl_centre_member_repeat_count=2,
     )
     override={selected_vehicle_code:selected_vehicle_inputs} if (

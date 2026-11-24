@@ -1,0 +1,2552 @@
+{
+  "fixture_type": "vehicle-summary-selector-metadata-only",
+  "source": "Per-vehicle source summary formulas and P/Q/R lookup keys; reference single cell only",
+  "vehicles": {
+    "70rw": {
+      "AL11": {
+        "operation": "max",
+        "lookups": [
+          {
+            "beam": 108,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL13": {
+        "operation": "max",
+        "lookups": [
+          {
+            "beam": 201,
+            "end": "end",
+            "quantity": "Mz",
+            "sign": "max"
+          },
+          {
+            "beam": 215,
+            "end": "end",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL15": {
+        "operation": "max",
+        "lookups": [
+          {
+            "beam": 202,
+            "end": "end",
+            "quantity": "Mz",
+            "sign": "max"
+          },
+          {
+            "beam": 214,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL21": {
+        "operation": "min",
+        "lookups": [
+          {
+            "beam": 101,
+            "end": "end",
+            "quantity": "Mz",
+            "sign": "min"
+          },
+          {
+            "beam": 114,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL23": {
+        "operation": "min",
+        "lookups": [
+          {
+            "beam": 102,
+            "end": "end",
+            "quantity": "Mz",
+            "sign": "min"
+          },
+          {
+            "beam": 113,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL29": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1006,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL30": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2006,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL31": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1006,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL32": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2006,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL33": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1005,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL34": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2005,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL35": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1005,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL36": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2005,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL37": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1004,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL38": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2004,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL39": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1004,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL40": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2004,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL41": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1002,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL42": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2002,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL43": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1002,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL44": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2002,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL45": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1003,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL46": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2003,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL47": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1003,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL48": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2003,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL9": {
+        "operation": "min",
+        "lookups": [
+          {
+            "beam": 207,
+            "end": "end",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT10": {
+        "operation": "min",
+        "lookups": [
+          {
+            "beam": 206,
+            "end": "end",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT12": {
+        "operation": "max",
+        "lookups": [
+          {
+            "beam": 108,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT14": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 201,
+            "end": "end",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT15": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 210,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT16": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 202,
+            "end": "end",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT17": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 209,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT22": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 101,
+            "end": "end",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT23": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 114,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT24": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 102,
+            "end": "end",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT25": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 113,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT30": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1005,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT31": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1005,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT32": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2005,
+            "end": "end",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT33": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2005,
+            "end": "end",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT34": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1004,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT35": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1004,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT36": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2004,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT37": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2004,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT42": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1004,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT43": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1004,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT44": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2004,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT45": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2004,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT48": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1002,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT49": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1002,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT50": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2002,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT51": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2002,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT52": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1003,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT53": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1003,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT54": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2003,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT55": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2003,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      }
+    },
+    "40t": {
+      "AL11": {
+        "operation": "max",
+        "lookups": [
+          {
+            "beam": 108,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL13": {
+        "operation": "max",
+        "lookups": [
+          {
+            "beam": 201,
+            "end": "end",
+            "quantity": "Mz",
+            "sign": "max"
+          },
+          {
+            "beam": 215,
+            "end": "end",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL15": {
+        "operation": "max",
+        "lookups": [
+          {
+            "beam": 202,
+            "end": "end",
+            "quantity": "Mz",
+            "sign": "max"
+          },
+          {
+            "beam": 214,
+            "end": "end",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL21": {
+        "operation": "min",
+        "lookups": [
+          {
+            "beam": 101,
+            "end": "end",
+            "quantity": "Mz",
+            "sign": "min"
+          },
+          {
+            "beam": 114,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL23": {
+        "operation": "min",
+        "lookups": [
+          {
+            "beam": 102,
+            "end": "end",
+            "quantity": "Mz",
+            "sign": "min"
+          },
+          {
+            "beam": 113,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL29": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1006,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL30": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2006,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL31": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1006,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL32": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2006,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL33": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1005,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL34": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2005,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL35": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1005,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL36": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2005,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL37": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1004,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL38": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2004,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL39": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1004,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL40": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2004,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL41": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1002,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL42": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2002,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL43": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1002,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL44": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2002,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL45": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1003,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL46": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2003,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL47": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1003,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL48": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2003,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL9": {
+        "operation": "min",
+        "lookups": [
+          {
+            "beam": 207,
+            "end": "end",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT10": {
+        "operation": "min",
+        "lookups": [
+          {
+            "beam": 206,
+            "end": "end",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT12": {
+        "operation": "max",
+        "lookups": [
+          {
+            "beam": 108,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT14": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 201,
+            "end": "end",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT15": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 210,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT16": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 202,
+            "end": "end",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT17": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 214,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT22": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 101,
+            "end": "end",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT23": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 114,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT24": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 102,
+            "end": "end",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT25": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 113,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT30": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1005,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT31": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1005,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT32": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2005,
+            "end": "end",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT33": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2005,
+            "end": "end",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT34": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1004,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT35": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1004,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT36": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2004,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT37": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2004,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT42": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1004,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT43": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1004,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT44": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2004,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT45": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2004,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT48": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1002,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT49": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1002,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT50": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2002,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT51": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2002,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT52": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1003,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT53": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1003,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT54": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2003,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT55": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2003,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      }
+    },
+    "70rt": {
+      "AL11": {
+        "operation": "max",
+        "lookups": [
+          {
+            "beam": 108,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL13": {
+        "operation": "max",
+        "lookups": [
+          {
+            "beam": 201,
+            "end": "end",
+            "quantity": "Mz",
+            "sign": "max"
+          },
+          {
+            "beam": 215,
+            "end": "end",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL15": {
+        "operation": "max",
+        "lookups": [
+          {
+            "beam": 202,
+            "end": "end",
+            "quantity": "Mz",
+            "sign": "max"
+          },
+          {
+            "beam": 214,
+            "end": "end",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL21": {
+        "operation": "min",
+        "lookups": [
+          {
+            "beam": 101,
+            "end": "end",
+            "quantity": "Mz",
+            "sign": "min"
+          },
+          {
+            "beam": 114,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL23": {
+        "operation": "min",
+        "lookups": [
+          {
+            "beam": 102,
+            "end": "end",
+            "quantity": "Mz",
+            "sign": "min"
+          },
+          {
+            "beam": 113,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL29": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1006,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL30": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2006,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL31": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1006,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL32": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2006,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL33": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1005,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL34": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2005,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL35": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1005,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL36": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2005,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL37": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1004,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL38": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2004,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL39": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1004,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL40": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2004,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL41": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1002,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL42": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2002,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL43": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1002,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL44": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2002,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL45": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1003,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL46": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2003,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL47": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1003,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL48": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2003,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL9": {
+        "operation": "min",
+        "lookups": [
+          {
+            "beam": 207,
+            "end": "end",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT10": {
+        "operation": "min",
+        "lookups": [
+          {
+            "beam": 206,
+            "end": "end",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT12": {
+        "operation": "max",
+        "lookups": [
+          {
+            "beam": 108,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT14": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 201,
+            "end": "end",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT15": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 210,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT16": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 202,
+            "end": "end",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT17": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 214,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT22": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 101,
+            "end": "end",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT23": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 114,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT24": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 102,
+            "end": "end",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT25": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 113,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT30": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1005,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT31": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1005,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT32": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2005,
+            "end": "end",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT33": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2005,
+            "end": "end",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT34": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1004,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT35": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1004,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT36": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2004,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT37": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2004,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT42": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1004,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT43": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1004,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT44": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2004,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT45": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2004,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT48": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1002,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT49": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1002,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT50": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2002,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT51": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2002,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT52": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1003,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT53": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1003,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT54": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2003,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT55": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2003,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      }
+    },
+    "sv385": {
+      "AL11": {
+        "operation": "max",
+        "lookups": [
+          {
+            "beam": 108,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL13": {
+        "operation": "max",
+        "lookups": [
+          {
+            "beam": 201,
+            "end": "end",
+            "quantity": "Mz",
+            "sign": "max"
+          },
+          {
+            "beam": 215,
+            "end": "end",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL15": {
+        "operation": "max",
+        "lookups": [
+          {
+            "beam": 202,
+            "end": "end",
+            "quantity": "Mz",
+            "sign": "max"
+          },
+          {
+            "beam": 214,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL21": {
+        "operation": "min",
+        "lookups": [
+          {
+            "beam": 101,
+            "end": "end",
+            "quantity": "Mz",
+            "sign": "min"
+          },
+          {
+            "beam": 114,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL23": {
+        "operation": "min",
+        "lookups": [
+          {
+            "beam": 102,
+            "end": "end",
+            "quantity": "Mz",
+            "sign": "min"
+          },
+          {
+            "beam": 113,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL29": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1006,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL30": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2006,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL31": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1006,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL32": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2006,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL33": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1005,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL34": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2005,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL35": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1005,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL36": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2005,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL37": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1004,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL38": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2004,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL39": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1004,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL40": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2004,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL41": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1002,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL42": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2002,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL43": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1002,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL44": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2002,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL45": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1003,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL46": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2003,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL47": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1003,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AL48": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2003,
+            "end": "start",
+            "quantity": "Mz",
+            "sign": "max"
+          }
+        ]
+      },
+      "AL9": {
+        "operation": "min",
+        "lookups": [
+          {
+            "beam": 207,
+            "end": "end",
+            "quantity": "Mz",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT10": {
+        "operation": "min",
+        "lookups": [
+          {
+            "beam": 206,
+            "end": "end",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT12": {
+        "operation": "max",
+        "lookups": [
+          {
+            "beam": 108,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT16": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 202,
+            "end": "end",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT17": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 209,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT22": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 101,
+            "end": "end",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT23": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 114,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT24": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 102,
+            "end": "end",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT25": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 113,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT30": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1005,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT31": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1005,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT32": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2005,
+            "end": "end",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT33": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2005,
+            "end": "end",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT34": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1004,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT35": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1004,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT36": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2004,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT37": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2004,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT42": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1004,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT43": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1004,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT44": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2004,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT45": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2004,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT48": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1002,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT49": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1002,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT50": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2002,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT51": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2002,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT52": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1003,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT53": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 1003,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      },
+      "AT54": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2003,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "max"
+          }
+        ]
+      },
+      "AT55": {
+        "operation": "single",
+        "lookups": [
+          {
+            "beam": 2003,
+            "end": "start",
+            "quantity": "Fy",
+            "sign": "min"
+          }
+        ]
+      }
+    }
+  }
+}
