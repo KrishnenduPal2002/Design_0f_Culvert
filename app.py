@@ -48,7 +48,7 @@ from src.frame_solver import FrameOptions, ThermalLoad, run_frame_analysis, _bui
 from src.thermal_moving_envelope import calculate_thermal_moving_envelope
 from src.live_static_normals import calculate_connected_normal_moments, calculate_connected_static_actions
 from src.live_vehicle_ll_check import calculate_four_vehicle_ll
-from src.linked_reinforcement import linked_demands, trial_main_steel, service_overrides, trial_stirrups
+from src.linked_reinforcement import linked_demands, trial_main_steel, service_overrides, trial_stirrups, calculate_linked_uls_flexural_strength, calculate_linked_uls_shear_strength
 from src.calculations import calculate_live_frame_flexural_demands
 # The workbook reference benchmark is optional if only app.py was copied.
 # The complete installation still includes src/reference_fem.py and
@@ -60,7 +60,7 @@ except ModuleNotFoundError as exc:
         raise
     solve_reference_case = None
     run_reference_static_benchmark = None
-from src.sls_design import calculate_sls_design, sls_demands_csv_template, parse_sls_demands_csv, steel_details_from_uls
+from src.sls_design import calculate_sls_design, sls_demands_csv_template, parse_sls_demands_csv, steel_details_from_uls, reference_table as sls_reference_table
 from src.bbs import calculate_bbs, reference_bars
 from src.boq import calculate_boq, reference_boq_items
 from src.quantity_exports import (bbs_template_csv, boq_template_csv, bbs_result_csv,
@@ -697,10 +697,10 @@ m2.metric("External height", f"{g['external_height_m']:.3f} m")
 m3.metric("Concrete volume", f"{g['concrete_volume_m3']:.3f} m³")
 m4.metric("Self-weight (unfactored)", f"{loads['concrete_self_weight_kn']:,.2f} kN")
 
-tab_drawing, tab_calcs, tab_earth, tab_traffic, tab_vehicle, tab_combo, tab_solver, tab_bbs, tab_boq, tab_rebar = st.tabs([
+tab_drawing, tab_calcs, tab_earth, tab_traffic, tab_vehicle, tab_combo, tab_solver, tab_bbs, tab_boq, tab_rebar, tab_download = st.tabs([
     "📐 Drawing", "🧮 Calculations", "🌍 Earth pressure", "🚛 Braking forces",
     "🚚 Vehicle axles & dispersion", "🧾 Factor sets", "🧱 In-app frame solver",
-    "🪛 BBS steel schedule", "📦 BOQ quantities", "📐 Reinforcement drawings"
+    "🪛 BBS steel schedule", "📦 BOQ quantities", "📐 Reinforcement drawings", "Download"
 ])
 
 with tab_drawing:
@@ -1060,6 +1060,14 @@ def draw_temperature_gradient_diagram(temperature_result: dict):
     return fig
 
 
+_report_messages = []
+_report_temp_images = {}
+_report_earth_png = None
+
+def _report_notice(renderer, message, *args, **kwargs):
+    _report_messages.append(str(message))
+    return renderer(message, *args, **kwargs)
+
 with tab_calcs:
     st.subheader("Calculations")
     # Future calculation sub-sections can be added to this list.
@@ -1173,11 +1181,11 @@ with tab_calcs:
             if dead_load['base_pressure_within_capacity']:
                 st.write('**Reference comparison:** Total base pressure is below the entered safe bearing capacity.')
             else:
-                st.error('Total base pressure exceeds the entered safe bearing capacity.')
+                _report_notice(st.error, 'Total base pressure exceeds the entered safe bearing capacity.')
             st.caption('Reference discrepancy: the Crash Barrier and Haunch rows use the reference Area (m²) '
                        'column. Changing their displayed breadth/height alone will not change their weights.')
         except (ValueError, TypeError) as exc:
-            st.error(f'Cannot calculate Dead Load and SIDL: {exc}')
+            _report_notice(st.error, f'Cannot calculate Dead Load and SIDL: {exc}')
 
 
     with spring_constant_tab:
@@ -1241,7 +1249,7 @@ with tab_calcs:
                        'Changing mesh refinement may change individual row widths, '
                        'while total tributary width remains equal to the centreline span.')
         except (ValueError, TypeError) as exc:
-            st.error(f'Cannot calculate Spring Constant: {exc}')
+            _report_notice(st.error, f'Cannot calculate Spring Constant: {exc}')
 
     with earth_pressure_calc_tab:
         st.subheader('Earth Pressure')
@@ -1251,6 +1259,7 @@ with tab_calcs:
             # Schematic redraws with slab, wall, haunch, and pressure inputs.
             pressure_figure = draw_earth_pressure_design_note(inputs, pressures)
             st.pyplot(pressure_figure, use_container_width=True)
+            _report_earth_png = figure_to_png(pressure_figure)
             plt.close(pressure_figure)
 
             st.markdown('**Earth pressure at different locations**')
@@ -1278,7 +1287,7 @@ with tab_calcs:
             st.caption('Earth pressure = K₀ × backfill density × depth H. '
                        'Surcharge and cushion pressures are shown separately, not added to each station pressure.')
         except (ValueError, TypeError) as exc:
-            st.error(f'Cannot calculate Earth Pressure: {exc}')
+            _report_notice(st.error, f'Cannot calculate Earth Pressure: {exc}')
 
 
     with braking_force_calc_tab:
@@ -1311,7 +1320,7 @@ with tab_calcs:
                        f"({braking_calcs['lever_arm_m']:.3f} m). Values are design-note arithmetic, "
                        'not verified structural load combinations.')
         except (ValueError, TypeError, KeyError) as exc:
-            st.error(f'Cannot calculate Braking Force: {exc}')
+            _report_notice(st.error, f'Cannot calculate Braking Force: {exc}')
 
 
 with temperature_calc_tab:
@@ -1369,6 +1378,7 @@ with temperature_calc_tab:
             )
             figure = draw_temperature_gradient_diagram(panel)
             st.pyplot(figure, use_container_width=True)
+            _report_temp_images[mode] = figure_to_png(figure)
             plt.close(figure)
             st.markdown('**Calculated force table**')
             display=[]
@@ -1395,7 +1405,7 @@ with temperature_calc_tab:
             st.latex(r'M = E_c I \alpha \frac{\Delta T_{eq}}{h}')
             temperature_panels[mode] = panel
         except (ValueError, TypeError, KeyError) as ex:
-            st.error(f'Cannot calculate temperature {mode}: {ex}')
+            _report_notice(st.error, f'Cannot calculate temperature {mode}: {ex}')
 
     with rise_tab:
         _temperature_gradient_panel('rise')
@@ -1437,7 +1447,7 @@ with temperature_calc_tab:
                        'The design note describes this as approximately half. '
                        'Thermal equivalent member loads are now applied in the experimental Python FEM.')
         except (ValueError,TypeError) as ex:
-            st.error(f'Cannot calculate uniform temperature: {ex}')
+            _report_notice(st.error, f'Cannot calculate uniform temperature: {ex}')
 
 
     active_thermal = ThermalLoad()  # overwritten by the selected live temperature case
@@ -1461,7 +1471,7 @@ with temperature_calc_tab:
         if 'fall' in temperature_panels:
             thermal_cases['Gradient fall'] = (0.0, -float(temperature_panels['fall']['equivalent_delta_t_c']))
         if temp_case not in thermal_cases:
-            st.warning('Temperature case has no valid input results yet.')
+            _report_notice(st.warning, 'Temperature case has no valid input results yet.')
         else:
             selected_uniform, selected_gradient = thermal_cases[temp_case]
             active_thermal = ThermalLoad(
@@ -1490,7 +1500,7 @@ with temperature_calc_tab:
             else:
                 st.info('Enable the in-app FEM model in Design Inputs to apply temperature loading.')
     except (ValueError, TypeError, KeyError) as ex:
-        st.error(f'Cannot apply temperature effects to FEM: {ex}')
+        _report_notice(st.error, f'Cannot apply temperature effects to FEM: {ex}')
 
 
 
@@ -1547,7 +1557,7 @@ with design_moment_calc_tab:
             )
     except (ValueError, TypeError, KeyError, OSError, RuntimeError,
             ArithmeticError, AssertionError) as exc:
-        st.error('Live vehicle LL could not be calculated. Both tables retain '
+        _report_notice(st.error, 'Live vehicle LL could not be calculated. Both tables retain '
                  'reference LL values: ' + str(exc))
         _live_ll_for_tables = None
 
@@ -1571,7 +1581,7 @@ with design_moment_calc_tab:
             int(old['Excel row']) != int(new['Excel row'])
             for old, new in zip(original_moments, computed_ll_rows)
         ):
-            st.error('LL moment row mapping failed. Original reference LL retained.')
+            _report_notice(st.error, 'LL moment row mapping failed. Original reference LL retained.')
             _live_ll_for_tables = None
         else:
             original_moments = [
@@ -1601,7 +1611,7 @@ with design_moment_calc_tab:
                    'soil pressure and source static factor sets. Quasi LL is zero by the '
                    'source combination rule.')
     except (ValueError, TypeError, KeyError, ArithmeticError, RuntimeError) as exc:
-        st.warning('Live Normal FEM values unavailable; Normal and LL columns '
+        _report_notice(st.warning, 'Live Normal FEM values unavailable; Normal and LL columns '
                    'show reference inputs, NOT recalculated actions: ' + str(exc))
     moment_input_rows = [
         {'Member': row['Member'], 'Location': row['Location'], 'Face': row['Face'],
@@ -1631,7 +1641,7 @@ with design_moment_calc_tab:
             {**original, **edited, 'Quasi LL': 0.0}
             for original, edited in zip(original_moments, edited_moments)
         ]
-        moment_result = calculate_design_moment_combinations(rows_for_calc)
+        moment_result = calculate_design_moment_combinations(original_moments if _live_static_normal_ok and _live_ll_for_tables is not None else rows_for_calc)
         _uls_linked_inputs['Design Moment'] = (moment_result['rows'] if _live_static_normal_ok and _live_ll_for_tables is not None else None)
         st.markdown('**Calculated moments — ULS (Normal, LL, Factor load), Rare and Quasi-Permanent**')
         moment_columns = ['Member', 'Location', 'Face',
@@ -1653,7 +1663,7 @@ with design_moment_calc_tab:
     except (ValueError, TypeError) as exc:
         _uls_linked_inputs['Design Moment'] = None
         _uls_linked_errors['Design Moment'] = str(exc)
-        st.error(f'Cannot calculate Design Moments: {exc}')
+        _report_notice(st.error, f'Cannot calculate Design Moments: {exc}')
 
     st.divider()
     st.markdown('### ULS Shear Force (t/m)')
@@ -1669,7 +1679,7 @@ with design_moment_calc_tab:
             int(old['Excel row']) != int(new['Excel row'])
             for old, new in zip(original_shears, live_shear_ll)
         ):
-            st.error('LL shear row mapping failed. Original reference LL retained.')
+            _report_notice(st.error, 'LL shear row mapping failed. Original reference LL retained.')
         else:
             original_shears = [
                 {**old, 'LL': float(new['LL'])}
@@ -1691,7 +1701,7 @@ with design_moment_calc_tab:
         st.caption('ULS Normal shears are recalculated from the current static FEM '
                    'cases; four-vehicle LL values are recalculated automatically when the live solver succeeds.')
     except (ValueError, TypeError, KeyError, ArithmeticError, RuntimeError) as exc:
-        st.warning('Live ULS Normal shear unavailable; reference values are shown '
+        _report_notice(st.warning, 'Live ULS Normal shear unavailable; reference values are shown '
                    'and may not reflect changed inputs: ' + str(exc))
     edited_shear_rows = None
     shear_edit_rows = [
@@ -1735,7 +1745,7 @@ with design_moment_calc_tab:
             },
         )
     except (ValueError, TypeError) as exc:
-        st.error(f'Cannot calculate ULS shear forces: {exc}')
+        _report_notice(st.error, f'Cannot calculate ULS shear forces: {exc}')
 
 
 
@@ -1757,9 +1767,9 @@ with flexural_reinforcement_calc_tab:
         flexural_defaults, trial_notes = trial_main_steel(inputs, default_design_constants(inputs), _uls_linked_inputs['Design Moment'])
         _trial_steel_ok = True
         for note in trial_notes:
-            st.warning(note)
+            _report_notice(st.warning, note)
     except (ValueError, TypeError, KeyError, ArithmeticError) as exc:
-        st.error('Trial reinforcement unavailable: ' + str(exc))
+        _report_notice(st.error, 'Trial reinforcement unavailable: ' + str(exc))
     flexural_columns = {
         'Component': st.column_config.TextColumn('Component', width='medium'),
         'Section': st.column_config.TextColumn('Section', width='medium'),
@@ -1783,6 +1793,8 @@ with flexural_reinforcement_calc_tab:
     if hasattr(flexural_inputs, 'to_dict'):
         flexural_inputs = flexural_inputs.to_dict('records')
     try:
+        if _trial_steel_ok:
+            flexural_inputs = flexural_defaults
         flexural_result = calculate_flexural_reinforcement(flexural_inputs)
         _uls_linked_inputs['Flexural R/F'] = flexural_inputs if _trial_steel_ok else None
         st.markdown('**Calculated flexural reinforcement provided at inner and outer faces**')
@@ -1810,7 +1822,7 @@ with flexural_reinforcement_calc_tab:
     except (ValueError, TypeError) as exc:
         _uls_linked_inputs['Flexural R/F'] = None
         _uls_linked_errors['Flexural R/F'] = str(exc)
-        st.error(f'Cannot calculate Flexural R/F: {exc}')
+        _report_notice(st.error, f'Cannot calculate Flexural R/F: {exc}')
 
 
 with design_constants_calc_tab:
@@ -1905,7 +1917,7 @@ with design_constants_calc_tab:
     except (ValueError, TypeError) as exc:
         _uls_linked_inputs['Design Constants'] = None
         _uls_linked_errors['Design Constants'] = str(exc)
-        st.error(f'Cannot calculate Design Constants: {exc}')
+        _report_notice(st.error, f'Cannot calculate Design Constants: {exc}')
 
 
 
@@ -1923,14 +1935,14 @@ with uls_flexural_strength_calc_tab:
         required_sources = ('Design Constants', 'Flexural R/F', 'Design Moment')
         unavailable_sources = [name for name in required_sources if _uls_linked_inputs[name] is None]
         if unavailable_sources:
-            st.error('Current linked inputs unavailable: ' + ', '.join(unavailable_sources))
+            _report_notice(st.error, 'Current linked inputs unavailable: ' + ', '.join(unavailable_sources))
         else:
-            uls_flexural_result = calculate_uls_flexural_strength(
+            uls_flexural_result = calculate_linked_uls_flexural_strength(
                 inputs, constants=_uls_linked_inputs['Design Constants'],
                 reinforcement_rows=_uls_linked_inputs['Flexural R/F'],
                 live_demands=linked_demands(_uls_linked_inputs['Design Moment'], 'ULS Factor load'),
             )
-            st.caption('Uses the current four-vehicle Design Moment totals. Trial capacity checks require engineer review.')
+            st.caption('Uses the current four-vehicle Design Moment totals and the workbook’s rounded 10 kN/t flexural convention. Trial capacity checks require engineer review.')
             display_columns = [
                 'Component', 'Section', 'Face', 'Xu max/d', 'Xu max (m)',
                 'R lim (MPa)', 'd min (mm)', 'd provided (mm)',
@@ -1963,7 +1975,7 @@ with uls_flexural_strength_calc_tab:
                      f"**Reinforcement:** {uls_flexural_result['steel_ok_count']}/"
                      f"{uls_flexural_result['row_count']} OK")
     except (ValueError, TypeError, KeyError, IndexError) as exc:
-        st.error(f'Cannot calculate ULS Flexural Strength Check: {exc}')
+        _report_notice(st.error, f'Cannot calculate ULS Flexural Strength Check: {exc}')
 
 
 
@@ -1971,25 +1983,28 @@ def _automatic_distribution_rows(uls_rows):
     """Derive the existing 10 transverse-steel rows from the 16 ULS flexural demands.
 
     Index mappings reproduce the source design's top/bottom edge/mid and
-    wall earth/inner face choices. They are fixed section IDENTITIES, not
+    wall earth/inner face choices, including the maximum of all five
+    checks on each wall face (Design!E101/E102). They are fixed section IDENTITIES, not
     fixed engineering loads or required steel.
     """
     if not isinstance(uls_rows, (list, tuple)) or len(uls_rows) != 16:
         raise ValueError('Automatic distribution requires all 16 ULS flexural rows')
     # Top edges/midpoints, bottom edges/midpoints, wall earth/inner.
-    source_indices = (0, 2, 0, 2, 4, 5, 4, 5, 14, 11)
+    source_indices = ((0,), (2,), (0,), (2,), (4,), (5,), (4,), (5,),
+                      (6, 8, 10, 12, 14), (7, 9, 11, 13, 15))
     baseline = default_distribution_reinforcement_rows()
     if len(baseline) != len(source_indices):
         raise ValueError('Distribution table layout changed; expected 10 rows')
     rows = []
     for row_number, (template, uls_index) in enumerate(zip(baseline, source_indices), 1):
-        demand = uls_rows[uls_index].get('Ast Reqd. (mm²/m)')
-        if demand is None or not isinstance(demand, (float, int)) or not math.isfinite(demand) or demand < 0:
+        demands = [uls_rows[index].get('Ast Reqd. (mm²/m)') for index in uls_index]
+        if any(d is None or not isinstance(d, (float, int)) or isinstance(d, bool)
+               or not math.isfinite(d) or d < 0 for d in demands):
             raise ValueError(
                 f'Distribution row {row_number}: linked ULS required steel is unavailable; '
                 'a reference value must not be substituted'
             )
-        required = 0.20 * demand
+        required = 0.20 * max(demands)
         diameter = float(template['Diameter (mm)'])
         spacing = float(template['Spacing (mm)'])
         if diameter <= 0 or spacing <= 0:
@@ -2060,7 +2075,7 @@ with distribution_reinforcement_calc_tab:
                    'necessary. This does not replace structural verification of ULS demands, '
                    'bar development, spacing limits or full IRC detailing.')
     except (ValueError, TypeError) as exc:
-        st.error(f'Cannot calculate Distribution Reinforcement: {exc}')
+        _report_notice(st.error, f'Cannot calculate Distribution Reinforcement: {exc}')
 
 
 # Reference-equivalent ULS shear-strength check, immediately after
@@ -2076,9 +2091,9 @@ with uls_shear_strength_calc_tab:
         required = ('Design Constants', 'Flexural R/F', 'Shear Force')
         missing = [name for name in required if _uls_linked_inputs.get(name) is None]
         if missing:
-            st.error('The shear check needs valid inputs from: '+', '.join(missing))
+            _report_notice(st.error, 'The shear check needs valid inputs from: '+', '.join(missing))
         else:
-            shear_strength = calculate_uls_shear_strength_table(
+            shear_strength = calculate_linked_uls_shear_strength(
                 inputs, live_shear_rows=_uls_linked_inputs['Shear Force'],
                 reinforcement_rows=_uls_linked_inputs['Flexural R/F'],
                 constants=_uls_linked_inputs['Design Constants'],
@@ -2126,6 +2141,8 @@ with uls_shear_strength_calc_tab:
                     fck_mpa=dc_shear['values']['fck_mpa'],
                     fy_mpa=dc_shear['values']['fy_mpa'],
                 )
+                if stirrup_table['fail_count']:
+                    _report_notice(st.error, f"{stirrup_table['fail_count']} trial stirrup layout(s) fail capacity, minimum steel or spacing checks; engineer redesign required.")
                 st.markdown('**Check for strength (ULS: Basic Combination) — Shear with reinforcement**')
                 format_cols={
                     'Design Shear (t/m)':'%.3f','Φ (mm)':'%.0f','Spacing (mm)':'%.1f',
@@ -2149,7 +2166,7 @@ with uls_shear_strength_calc_tab:
                 )
 
     except (ValueError, TypeError, KeyError, IndexError) as exc:
-        st.error(f'Cannot calculate ULS Shear Strength Check: {exc}')
+        _report_notice(st.error, f'Cannot calculate ULS Shear Strength Check: {exc}')
 
 
 with tab_earth:
@@ -2332,7 +2349,6 @@ with tab_solver:
 # Core src.uls_design calculations remain available to the project.
 
 with sls_calc_tab:
-    st.subheader("Stage 6 — Serviceability Limit State (SLS)")
     pass  # removed Streamlit reminder banner
     sls_source_mode = "Live linked Design Moment"
     source_name = "Current Rare and Quasi Design Moment totals and linked trial reinforcement"
@@ -2342,23 +2358,16 @@ with sls_calc_tab:
         demand_overrides = service_overrides(_uls_linked_inputs['Design Moment'], uls_flexural_result['rows'],
             _uls_linked_inputs['Flexural R/F'], _uls_linked_inputs['Design Constants'])
     except (ValueError, TypeError, KeyError, ArithmeticError) as exc:
-        st.error('Cannot calculate linked SLS: ' + str(exc))
+        _report_notice(st.error, 'Cannot calculate linked SLS: ' + str(exc))
         st.stop()
-    with st.expander("SLS material constants and acceptance criteria", expanded=True):
-        st.caption("Concrete and steel grades come from the sidebar. The values below are the reference-section assumptions, not automatic IRC approvals.")
-        mat1, mat2, mat3 = st.columns(3)
-        with mat1:
-            sls_es = st.number_input("Steel modulus Es (GPa)", min_value=1.0, value=200.0, step=5.0, key="sls_es")
-            sls_ecm = st.number_input("Concrete modulus Ecm (GPa)", min_value=1.0, value=32.30824972296583, step=0.5, key="sls_ecm")
-        with mat2:
-            sls_kt = st.number_input("Crack parameter kt", min_value=0.0, value=0.5, step=0.05, key="sls_kt")
-            sls_k1 = st.number_input("Bond parameter k1", min_value=0.01, value=0.8, step=0.05, key="sls_k1")
-        with mat3:
-            sls_k2 = st.number_input("Strain parameter k2", min_value=0.01, value=0.5, step=0.05, key="sls_k2")
-            use_crack_limit = st.checkbox("Specify engineer-approved permissible crack width", value=False, key="sls_enable_crack_limit")
-            sls_crack_limit = st.number_input("Permissible crack width (mm)", min_value=0.01, value=0.30, step=0.05, disabled=not use_crack_limit, key="sls_crack_limit")
-        if not use_crack_limit:
-            st.caption("No crack-width PASS or FAIL will be reported until a verified permissible limit is set.")
+    # Preserve the existing SLS default assumptions without displaying controls.
+    sls_es = 200.0
+    sls_ecm = 32.30824972296583
+    sls_kt = 0.5
+    sls_k1 = 0.8
+    sls_k2 = 0.5
+    use_crack_limit = False  # No engineer-approved limit supplied.
+    sls_crack_limit = None
 
     share_with_uls = True
 
@@ -2368,64 +2377,19 @@ with sls_calc_tab:
         "permissible_crack_width_mm": sls_crack_limit if use_crack_limit else None,
     }
     try:
-        base_sls = calculate_sls_design(inputs, demand_overrides, demand_source=source_name, **sls_options)
-        fields = [
-            "rare_moment_tf_m_per_m", "quasi_moment_tf_m_per_m", "section_depth_mm",
-            "effective_depth_mm", "provided_as_mm2_per_m", "equivalent_bar_diameter_mm", "cover_mm",
-        ]
-        records = []
-        for section in base_sls["sections"]:
-            records.append({
-                "section_id": section["section_id"], "member": section["member"],
-                "location": section["location"],
-                **{field: section[field] for field in fields},
-            })
-        with st.expander("Edit service moments, section depths, cover and reinforcement", expanded=True):
-            st.caption("Rare and Quasi moments and section steel are linked to the current calculation tables; engineer review required.")
-            editor_tag = "sls_linked_" + hashlib.sha256(repr(records).encode()).hexdigest()[:12]
-            edited = st.data_editor(
-                records, hide_index=True, num_rows="fixed", use_container_width=True,
-                disabled=["section_id", "member", "location", *fields], key=editor_tag,
-                column_config={
-                    "section_id": st.column_config.TextColumn("Section ID"),
-                    "member": st.column_config.TextColumn("Member"),
-                    "location": st.column_config.TextColumn("Design location"),
-                    "rare_moment_tf_m_per_m": st.column_config.NumberColumn("Rare moment (tf·m/m)", format="%.3f"),
-                    "quasi_moment_tf_m_per_m": st.column_config.NumberColumn("Quasi moment (tf·m/m)", format="%.3f"),
-                    "section_depth_mm": st.column_config.NumberColumn("Section depth (mm)", format="%.1f"),
-                    "effective_depth_mm": st.column_config.NumberColumn("Effective depth (mm)", format="%.1f"),
-                    "provided_as_mm2_per_m": st.column_config.NumberColumn("Provided steel (mm²/m)", format="%.2f"),
-                    "equivalent_bar_diameter_mm": st.column_config.NumberColumn("Bar diameter (mm)", format="%.2f"),
-                    "cover_mm": st.column_config.NumberColumn("Cover (mm)", format="%.1f"),
-                },
-            )
-        edited_rows = edited.to_dict("records") if hasattr(edited, "to_dict") else list(edited)
-        user_overrides = {}
+        expected_ids = {f'S{i:02d}' for i in range(1, 17)}
+        if set(demand_overrides) != expected_ids or any(len(v) != 7 for v in demand_overrides.values()):
+            raise ValueError('Incomplete live SLS inputs; reference fallback blocked')
+        st.caption(f"Live SLS — current side wall: {inputs.wall_thickness_m * 1000:.1f} mm. Both tables use the same current calculation.")
+        sls = calculate_sls_design(inputs, demand_overrides, demand_source=source_name, **sls_options)
         changes = 0
-        originals = {r["section_id"]: r for r in records}
-        for row in edited_rows:
-            ident = row["section_id"]
-            if ident not in originals:
-                raise ValueError("Unknown SLS section identifier")
-            updated = {}
-            for field in fields:
-                num = float(row[field])
-                if not math.isfinite(num):
-                    raise ValueError(f"Non-finite SLS input for {ident} / {field}")
-                updated[field] = num
-                if not math.isclose(num, originals[ident][field], rel_tol=0, abs_tol=1e-9):
-                    changes += 1
-            user_overrides[ident] = updated
-        if changes and sls_source_mode == "Original Excel reference":
-            source_name = "Original Excel SLS reference edited by user (trial inputs)"
-        sls = calculate_sls_design(inputs, user_overrides, demand_source=source_name, **sls_options)
         sls["input_mode"] = sls_source_mode
         sls["editable_values_changed"] = changes
         result["sls_design"] = sls
         result["limitations"] = [v for v in result["limitations"] if not v.startswith("Stage 6 SLS demand source:")]
         result["limitations"].append(f"Stage 6 SLS demand source: {source_name}. No certified verification of SLS loads or crack limit.")
     except (ValueError, TypeError, KeyError, ZeroDivisionError) as exc:
-        st.error(f"Invalid SLS input: {exc}")
+        _report_notice(st.error, f"Invalid SLS input: {exc}")
         st.stop()
 
     rare_view, crack_view = st.tabs(["Rare-combination stresses", "Quasi-permanent crack widths"])
@@ -2454,6 +2418,7 @@ with sls_calc_tab:
             st.latex(r'A_{c,\mathrm{eff}}=b \min\left[2.5(h-d),\frac{h-x}{3},\frac{h}{2}\right]')
             st.latex(r's_{r,\max}=3.4c+\frac{0.425k_1k_2\phi_{eq}}{\rho_{p,\mathrm{eff}}}')
             st.caption('Using the selected concrete/steel, cracked section, cover and bond assumptions.')
+        st.caption('Live design: uses current section depths, face-specific cover, reinforcement and Quasi moments. The original design note uses 50 mm crack-calculation cover for every row and the original 250 mm wall model; see the separate reference comparison below.')
         quasi_rows = _sls_quasi_crack_schedule(sls)
         st.dataframe(
             quasi_rows, hide_index=True, use_container_width=True, height=665,
@@ -2638,3 +2603,17 @@ with tab_rebar:
                            mime="application/dxf",key="stage8_review_dxf")
     except Exception as exc:
         st.error(f"Could not generate reinforcement drawing: {exc}")
+
+
+# The PDF is regenerated from this rerun, not from saved/reference PDF bytes.
+with tab_download:
+    st.subheader("Download")
+    st.caption("Design Note PDF — generated from the current Design Inputs and calculation tables.")
+    try:
+        from src.design_note_report import build_design_note_pdf
+        design_note_pdf = build_design_note_pdf(globals())
+        st.download_button("Download Design Note (PDF)", data=design_note_pdf,
+                           file_name="Design_Note_RCC_Box_Culvert.pdf", mime="application/pdf",
+                           key="live_calculation_design_note_pdf", on_click="ignore")
+    except Exception as exc:
+        st.error(f"Design Note PDF unavailable: {exc}")
