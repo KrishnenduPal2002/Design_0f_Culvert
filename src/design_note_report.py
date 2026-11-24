@@ -9,6 +9,7 @@ from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Table, TableStyle, Spacer, PageBreak, Image
 from reportlab.pdfbase import pdfmetrics
+from reportlab.graphics.shapes import Drawing, Rect, Polygon, String, Line
 from reportlab.pdfbase.ttfonts import TTFont
 from matplotlib import get_data_path
 
@@ -78,7 +79,6 @@ def build_design_note_pdf(ctx):
             im=Image(io.BytesIO(data)); scale=min(width/im.imageWidth,170/im.imageHeight); im.drawWidth=im.imageWidth*scale; im.drawHeight=im.imageHeight*scale; story.append(im)
     def cols(*keys): return [(k,k) for k in keys]
     title('Design Note of RCC Box Culvert')
-    text('Current calculation snapshot — engineering review required. Not approved for construction. Values follow the current application, including its reference assumptions and trial reinforcement.')
     title('Geometric Parameters')
     kv([('Clear Width of cell',i.clear_width_m,'m'),('Clear Height of Cell',i.clear_height_m,'m'),('Total Length Of Structure',i.length_m,'m'),('C/C Height of structure',i.centreline_height_m,'m'),('Effective Single Span',ctx['effective_span_m'],'m'),('Side Wall Thickness',i.wall_thickness_m,'m'),('No. of cell',i.number_of_cells,''),('Total Width',i.total_width_m,'m'),('Top Slab Thickness',i.top_slab_thickness_m,'m'),('Bot. Slab Thickness',i.bottom_slab_thickness_m,'m'),('Height of Earth Cushion',i.earth_cushion_m,'m'),('Wearing Coat',ctx['wearing_coat_mm'],'mm'),('Haunch size',f"{i.haunch_width_m*1000:g} × {i.haunch_height_m*1000:g} ({i.haunch_count} active)",'mm'),('Int. wall Thickness',i.internal_wall_thickness_m,'m'),('MS Railing Width',i.ms_railing_width_m,'m')])
     title('Basic Parameters',True)
@@ -90,11 +90,30 @@ def build_design_note_pdf(ctx):
     for j,r in enumerate(d['rows'],1):
         dead.append({**r,'Sl. No.':j,'Height (m)':('m²' if r['Method']=='Area' else r['Height (m)']),'Breadth (m)':r['Section area used (m²)'] if r['Method']=='Area' else r['Breadth (m)']})
     table(dead,[('Sl. No.','Sl. No.'),('Member','Member'),('Nos','Nos.'),*cols('Length (m)','Breadth (m)','Height (m)','Density (t/m³)','Weight (t)')],{'Weight (t)':'.2f'})
-    kv([(label,d[key],unit) for label,key,unit in [('Total Weight on structure','total_weight_tf','t'),('Area of base slab','base_slab_area_m2','m²'),('DL Base Pressure','dead_load_base_pressure_tf_m2','t/m²'),('LL Base Pressure','live_load_base_pressure_tf_m2','t/m²'),('Total Base Pressure','total_base_pressure_tf_m2','t/m²'),('Safe Bearing Capacity','safe_bearing_capacity_tf_m2','t/m²')]])
-    text('LL base pressure is a reference-calibrated estimate. Area-method rows show section area in the Breadth column. '+d['source_note'])
-    title('Idealised Structure for Python Analysis'); image(ctx.get('png_bytes'))
-    title('Calculation of spring constant',True); table(ctx['springs']['rows'],cols('S.No.','Node No.','Eff. Width (m)','Spring constant (t/m)'),{'Eff. Width (m)':'.4f','Spring constant (t/m)':'.2f'})
-    text('Four representative nodes; actual FEM uses the full bottom-slab mesh.')
+    kv([(label,d[key],unit) for label,key,unit in [('Total Weight on structure','total_weight_tf','t'),('Area of base slab','base_slab_area_m2','m²'),('DL Base Pressure','dead_load_base_pressure_tf_m2','t/m²'),('LL Base Pressure (estimated)','live_load_base_pressure_tf_m2','t/m²'),('Total Base Pressure','total_base_pressure_tf_m2','t/m²'),('Safe Bearing Capacity','safe_bearing_capacity_tf_m2','t/m²')]])
+
+    kv([(f"{r['Member']} — adopted section area",r['Section area used (m²)'],'m²') for r in d['rows'] if r['Method']=='Area'])
+    title('Idealised Structure for Python Analysis — schematic')
+    dw=i.clear_width_m+2*i.wall_thickness_m; dh=i.clear_height_m+i.top_slab_thickness_m+i.bottom_slab_thickness_m
+    scale=min(260/dw,145/dh); x=28; y=24
+    W=dw*scale; H=dh*scale; w=i.wall_thickness_m*scale; bot=i.bottom_slab_thickness_m*scale; top=i.top_slab_thickness_m*scale
+    schematic=Drawing(width,195)
+    schematic.add(Rect(x,y,W,H,fillColor=colors.HexColor('#d9dee4'),strokeColor=colors.black))
+    lx=x+w; rx=x+W-w; by=y+bot; ty=y+H-top
+    schematic.add(Rect(lx,by,rx-lx,ty-by,fillColor=colors.white,strokeColor=colors.black))
+    if i.haunch_count==4:
+        hx=i.haunch_width_m*scale; hy=i.haunch_height_m*scale
+        for a,b,sx,sy in [(lx,by,1,1),(rx,by,-1,1),(lx,ty,1,-1),(rx,ty,-1,-1)]:
+            schematic.add(Polygon([a,b,a+sx*hx,b,a,b+sy*hy],fillColor=colors.HexColor('#d9dee4'),strokeColor=colors.black))
+    schematic.add(String(x+W/2,y+H+8,f'Overall width: {dw:.3f} m',fontName='CulvertSans',fontSize=8,textAnchor='middle'))
+    schematic.add(String(x+W/2,(by+ty)/2,f'{i.clear_width_m:.3f} × {i.clear_height_m:.3f} m',fontName='CulvertSans',fontSize=8,textAnchor='middle'))
+    schematic.add(String(x+W+14,y+H-12,f'Overall height: {dh:.3f} m',fontName='CulvertSans',fontSize=8))
+    schematic.add(String(x+W+14,y+H-27,f'Wall: {i.wall_thickness_m:.3f} m',fontName='CulvertSans',fontSize=8))
+    schematic.add(String(x+W+14,y+H-42,f'Top slab: {i.top_slab_thickness_m:.3f} m',fontName='CulvertSans',fontSize=8))
+    schematic.add(String(x+W+14,y+H-57,f'Bottom slab: {i.bottom_slab_thickness_m:.3f} m',fontName='CulvertSans',fontSize=8))
+    story.append(schematic)
+    title('Calculation of spring constant — representative nodes',True); table(ctx['springs']['rows'],cols('S.No.','Node No.','Eff. Width (m)','Spring constant (t/m)'),{'Eff. Width (m)':'.4f','Spring constant (t/m)':'.2f'})
+
     title('Earth Pressure per meter width'); pr=ctx['pressures']; table(pr['rows'],cols('S.No.','Earth Pressure at','H (m)','Earth Pressure (t/m²)'))
     kv([('LL Surcharge Pressure',pr['surcharge_pressure_tf_m2'],'t/m²'),('Horizontal Pressure on Side Wall Due to Earth Cushion',pr['cushion_pressure_tf_m2'],'t/m²')])
     image(ctx.get('_report_earth_png'))
@@ -110,19 +129,20 @@ def build_design_note_pdf(ctx):
         image(ctx.get('_report_temp_images',{}).get(mode))
     title('Effect of uniform temperature',True); u=ctx['uniform_temperature_result']
     kv([('Maximum shade air temperature',ctx['max_air'],'°C'),('Minimum shade air temperature',ctx['min_air'],'°C'),('Modulus of Elasticity of concrete considering creep',ctx['creep_e'],'t/m²'),('Difference between Maximum & Minimum Air temperature',u['shade_air_difference_c'],'°C'),('Bridge temperature at the time of restraint, Max',ctx['bridge_max'],'°C'),('Bridge temperature at the time of restraint, Min',ctx['bridge_min'],'°C'),('Load effect due to temperature rise',u['temperature_rise_c'],'°C'),('Load effect due to temperature fall',u['temperature_fall_c'],'°C'),('Temp. rise for applying in analysis',u['applied_rise_c'],'°C'),('Temp. fall for applying in analysis',u['applied_fall_c'],'°C')])
-    text('Thermal FEM combination integration is not fully validated.')
+
     title('Design moment due to different load combination',True); text('Sign convention: +ve MZ causes tension at top of member; -ve MZ at bottom.')
     mcols=[('Member','Location'),('Location','Section'),('Face','Face')]+[(f'{a} {b}',b) for a,bs in [('ULS',('Normal','LL','Factor load')),('Rare',('Normal','LL','Total')),('Quasi',('Normal','LL','Total'))] for b in bs]
     table(ctx['moment_result']['rows'],mcols,{k:'.4f' for k,_ in mcols[3:]},[('Location',0,2),('ULS — Total BM (t-m/m)',3,5),('Rare Combination — Total BM (t-m/m)',6,8),('Quasi-Permanent — Total BM (t-m/m)',9,11)])
     title('Design shear force',True); table(ctx['shear_result']['rows'],[('Member','Location'),('Location','Section'),('Face','Face'),*cols('Normal','LL','Total')],{k:'.4f' for k in ('Normal','LL','Total')},[('Location',0,2),('ULS — Total SF (t/m)',3,5)])
-    title('Flexural R/F detail of RCC Box',True)
+    title('Flexural R/F detail of RCC Box — trial schedule',True)
     rf=[('Component','Component'),('Section','Section'),('Position','Location'),('Calculated Inner (mm²/m)','Reinforcement Provided at inner face (mm²/m)'),('Calculated Outer (mm²/m)','Reinforcement Provided at outer face (mm²/m)')]
     for face,count in [('Inner',2),('Outer',3)]:
         for j in range(1,count+1): rf.extend([(f'{face} Bar-{j} (mm)',f'Bar-{j}'),(f'{face} Spacing-{j} (mm)','Spacing')])
     table(ctx['flexural_result']['rows'],rf,{'Calculated Inner (mm²/m)':'.2f','Calculated Outer (mm²/m)':'.2f'},[('',0,4),('Reinforcement Provided at inner face',5,8),('Reinforcement Provided at outer face',9,14)])
     title('Design Constants',True); dc=ctx['dc_result']; v=dc['values']
     kv([(label,v[key],unit) for label,key,unit in [('fy','fy_mpa','MPa'),('fck','fck_mpa','MPa'),('Es','es_gpa','GPa'),('Ecm','ecm_gpa','GPa'),('m','modular_ratio_reference',''),('fctm','fctm_mpa','MPa'),('Top Slab bottom','top_slab_bottom_cover_mm','mm'),('Top Slab','top_slab_top_cover_mm','mm'),('Bottom Slab','bottom_slab_cover_mm','mm'),('Side Slab Outer Face','side_wall_outer_cover_mm','mm'),('Side Slab Inner Face','side_wall_inner_cover_mm','mm')]])
-    table(dc['rows']); text(dc['note'])
+    table(dc['rows'])
+    kv([('Modular ratio (source)',v['modular_ratio_reference'],''),('Modular ratio (Es/Ecm)',v['es_gpa']/v['ecm_gpa'],'')])
     title('Check for strength (ULS : Basic Combination) (Max. Bending Moment)',True)
     table(ctx['uls_flexural_result']['rows'],[(k,{'Depth Check':'Check','Steel Check':'Check','d min (mm)':'dmin (mm)','d provided (mm)':'dprovided (mm)','Ast min (mm²/m)':'Astmin (mm²/m)'}.get(k,k)) for k in ['Component','Section','Face','Xu max/d','Xu max (m)','R lim (MPa)','d min (mm)','d provided (mm)','Depth Check','Design Moment (t-m)','Ast Reqd. (mm²/m)','Ast Lim (mm²/m)','Ast min (mm²/m)','Ast provided (mm²/m)','Steel Check']])
     title('Distribution Reinforcement',True); text('Transverse steel')
@@ -133,16 +153,15 @@ def build_design_note_pdf(ctx):
     if sh['required_count']:
         st=ctx.get('stirrup_table')
         if st is None: raise ValueError('Current stirrup check unavailable')
-        table(st['rows'],[(k,k) for k in st['columns']]); text(f"Trial layouts failing implemented checks: {st['fail_count']}")
+        table(st['rows'],[(k,k) for k in st['columns']])
+        if st['fail_count']:
+            text(f"Shear reinforcement checks not satisfied: {st['fail_count']}")
     else: text('No shear-critical sections in the current schedule.')
     title('Check for stress (SLS : Rare Combination)',True); text(f"For Short Term Effect — Modular Ratio, m = {ctx['sls']['materials']['es_gpa']/ctx['sls']['materials']['ecm_gpa']:.2f}")
     table(ctx['rare_rows'],[(k,lab) for k,lab in [('Component','Component'),('Section','Section'),('Face / location','Face / location'),('A_st provided (mm²/m)','Ast provided (mm²)'),('x_u (mm)','xu (in mm)'),('I_cr (m⁴)','2nd MOI, Icr (m⁴)'),('Moment (t·m/m)','Moment (t-m)'),('Concrete stress (t/m²)','Comp. Stress (t/m²)'),('Concrete limit (t/m²)','Permissible'),('Steel stress (t/m²)','Tensile Stress (t/m²)'),('Steel limit (t/m²)','Permissible'),('Check','Check')]])
-    title('Check for crack width (SLS : Quasi-Permanent Combination)',True); text('Surface Crack width, Wk = Sr,max (εsm − εcm). IRC 112:2020 clause 12.3.4 reference method. No engineer-approved crack-width limit supplied.')
+    title('Check for crack width (SLS : Quasi-Permanent Combination)',True)
     table(ctx['quasi_rows'],[(k,lab) for k,lab in [('Component','Component'),('Section','Section'),('Face / location','Face / location'),('A_st (mm²/m)','Ast (mm²)'),('A_c,eff (mm²/m)','Ac,eff (mm²)'),('ρ_p,eff','ρp,eff'),('Φ_eq (mm)','Φeq'),('Clear cover (mm)','Clear Cover (mm)'),('5(c + Φ/2) (mm)','S<= 5 (c+Φ/2)'),('S_r,max (mm)','Sr max (mm)'),('Quasi moment (tf·m/m)','Quasi Permanent Moment (t-m)'),('σ_sc (MPa)','σsc (MPa)'),('ε_sm − ε_cm','εsm − εcm'),('Crack width (mm)','Crack width (mm)')]])
-    title('Calculation notes and review status')
-    text('This report exports the application’s current values, not the original PDF values. Reference assumptions, changed-input FEM loads, effective depth and trial detailing require engineer review. No signatures or approval stamps are reproduced.')
-    for msg in ctx.get('_report_messages',[]): story.append(p(msg,small))
     def footer(c,d):
-        c.setFont('CulvertSans',8); c.setFillColor(colors.HexColor('#475569')); c.drawString(margin,16,'RCC Box Culvert | Engineering review required'); c.drawRightString(page[0]-margin,16,f'Page {d.page}')
+        c.setFont('CulvertSans',8); c.setFillColor(colors.HexColor('#475569')); c.drawString(margin,16,'RCC Box Culvert'); c.drawRightString(page[0]-margin,16,f'Page {d.page}')
     doc.build(story,onFirstPage=footer,onLaterPages=footer)
     return buf.getvalue()

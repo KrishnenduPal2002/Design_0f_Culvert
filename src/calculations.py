@@ -861,9 +861,9 @@ def default_design_constants(inputs: CulvertInputs) -> dict:
         'bottom_slab_cover_mm': 75.0,
         'side_wall_outer_cover_mm': 75.0,
         'side_wall_inner_cover_mm': 50.0,
-        # The source effective-depth table adds 50 mm at the haunch start,
-        # not the full geometric haunch size of 150 mm. Expose explicitly.
-        'haunch_start_extra_depth_m': 0.05 if inputs.haunch_count else 0.0,
+        # Workbook Design!K46:K49 uses one-third of the relevant haunch dimension.
+        'haunch_start_extra_depth_m': inputs.haunch_height_m / 3.0 if inputs.haunch_count else 0.0,
+        'wall_haunch_start_extra_depth_m': inputs.haunch_width_m / 3.0 if inputs.haunch_count else 0.0,
     }
 
 
@@ -892,7 +892,7 @@ def calculate_design_constants(
             num = float(raw)
         except (TypeError, ValueError, OverflowError) as exc:
             raise ValueError(f'{field} must be numeric') from exc
-        if not math.isfinite(num) or (num < 0 if field.endswith('_cover_mm') or field == 'haunch_start_extra_depth_m' else num <= 0):
+        if not math.isfinite(num) or (num < 0 if field.endswith('_cover_mm') or field.endswith('haunch_start_extra_depth_m') else num <= 0):
             raise ValueError(f'{field} must be finite and nonnegative (positive for material properties)')
         values[field] = num
 
@@ -905,7 +905,10 @@ def calculate_design_constants(
     top = inputs.top_slab_thickness_m
     bottom = inputs.bottom_slab_thickness_m
     wall = inputs.wall_thickness_m
-    extra = values['haunch_start_extra_depth_m']
+    slab_extra = values['haunch_start_extra_depth_m'] if inputs.haunch_count else 0.0
+    wall_extra = values['wall_haunch_start_extra_depth_m'] if inputs.haunch_count else 0.0
+    values['haunch_start_extra_depth_m'] = slab_extra
+    values['wall_haunch_start_extra_depth_m'] = wall_extra
     top_bottom = values['top_slab_bottom_cover_mm']
     top_top = values['top_slab_top_cover_mm']
     bottom_cover = values['bottom_slab_cover_mm']
@@ -921,7 +924,7 @@ def calculate_design_constants(
     ]
     rows = []
     for section, center_total, center_cover, center_bar, end_total, end_cover, end_bar, start_cover, start_bar in specifications:
-        start_total = end_total + extra
+        start_total = end_total + (wall_extra if section.startswith('Side Wall') else slab_extra)
         rows.append({
             'Section': section,
             'Total depth at center (m)': center_total,
@@ -937,8 +940,8 @@ def calculate_design_constants(
         'rows': rows,
         'row_count': len(rows),
         'note': ('The reference states m=6.19, whereas Es/Ecm = 200/32 = 6.25 from the '
-                 'rounded moduli. Reference 50 mm haunch-start thickening and the '
-                 'nominal effective-depth offsets require engineering verification.'),
+                 'rounded moduli. Haunch-start additions follow the workbook one-third dimension convention; '
+                 'section location and nominal effective-depth offsets require engineering verification.'),
     }
 
 

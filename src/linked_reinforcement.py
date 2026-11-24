@@ -1,5 +1,9 @@
 """Trial reinforcement and linked demand mappings. Not an approved design method."""
 import math
+import warnings
+
+# Original Design Note, page 11: comparison assumption only.
+SLS_CRACK_COVER_MM = 50.0
 from .calculations import (default_flexural_reinforcement_rows, calculate_flexural_reinforcement,
     calculate_uls_flexural_strength, calculate_uls_stirrup_design_table, calculate_uls_shear_strength_table,
     default_uls_stirrup_inputs, _ULS_FLEXURAL_LINKS, calculate_design_constants)
@@ -57,34 +61,59 @@ def calculate_linked_uls_flexural_strength(inputs, *, constants, reinforcement_r
 
 
 def trial_main_steel(inputs, constants, moments):
-    """Retain source bar sizes; tighten spacing only if needed. Both walls use
-    their common governing face demand. Infeasible sections remain REVIEW."""
-    rows=default_flexural_reinforcement_rows()
-    demands=linked_demands(moments,'ULS Factor load')
-    # Every pair of physical wall locations shares outer/inner governing demands.
-    targets=[(i, (i,)) for i in range(6)] + [(i,(i-i%2,i-i%2+1)) for i in range(6,16)]
-    warnings=[]
-    for i, physical in targets:
-        face=_ULS_FLEXURAL_LINKS[i][6]
-        checks=calculate_linked_uls_flexural_strength(inputs,constants=constants,reinforcement_rows=rows,live_demands=demands)['rows']
-        check=checks[i]
-        needed=check['Ast Reqd. (mm²/m)']
-        if needed is None or check['Depth Check']!='OK':
-            warnings.append(f'Flexural section {i+1}: depth or moment domain requires redesign'); continue
-        needed=max(needed,check['Ast min (mm²/m)'])
-        for j in physical:
-            row=rows[j]
-            area=calculate_flexural_reinforcement([row])['rows'][0][f'Calculated {face} (mm²/m)']
-            if area >= needed: continue
-            d=float(row[f'{face} Bar-1 (mm)'] or 10)
-            s=float(row[f'{face} Spacing-1 (mm)'] or 180)
-            other=area-math.pi*d*d/4*1000/s
-            target=needed-max(0,other)
-            proposed=min(s,5*math.floor((math.pi*d*d/4*1000/target)/5))
-            if proposed < 75:
-                warnings.append(f'Flexural row {j+1} {face}: trial spacing below 75 mm; engineer redesign needed'); continue
-            row[f'{face} Spacing-1 (mm)']=proposed
-    return rows,warnings
+    """Generate a trial schedule, preserving passing source arrangements.
+
+    Search first-bar spacing and then larger first-bar diameters. These are
+    arithmetic candidates only; congestion, anchorage and detailing require review.
+    """
+    rows = default_flexural_reinforcement_rows()
+    demands = linked_demands(moments, 'ULS Factor load')
+    messages = []
+    def checks(schedule):
+        return calculate_linked_uls_flexural_strength(
+            inputs, constants=constants, reinforcement_rows=schedule,
+            live_demands=demands)['rows']
+    def passes(check):
+        return check['Depth Check'] == 'OK' and check['Steel Check'] == 'OK'
+    for i, link in enumerate(_ULS_FLEXURAL_LINKS):
+        face = link[6]
+        physical = (link[5],) if i < 6 else (i-i%2, i-i%2+1)
+        current = checks(rows)
+        if passes(current[i]):
+            continue
+        if current[i]['Depth Check'] != 'OK':
+            messages.append(f'Flexural section {i+1}: depth requires redesign')
+            continue
+        # Retain the other bar slots, and apply the same trial change on both walls.
+        original_dia = float(rows[physical[0]][f'{face} Bar-1 (mm)'] or 10)
+        original_spacing = float(rows[physical[0]][f'{face} Spacing-1 (mm)'] or 180)
+        diameters = [original_dia] + [d for d in (8,10,12,16,20,25) if d > original_dia]
+        accepted = False
+        for dia in diameters:
+            for spacing in range(5*math.floor(original_spacing/5), 74, -5):
+                candidate = [dict(r) for r in rows]
+                for j in physical:
+                    candidate[j][f'{face} Bar-1 (mm)'] = float(dia)
+                    candidate[j][f'{face} Spacing-1 (mm)'] = float(spacing)
+                try:
+                    verified = checks(candidate)
+                except ValueError:
+                    continue
+                if passes(verified[i]) and all(
+                    not passes(before) or passes(after)
+                    for before, after in zip(current, verified)
+                ):
+                    rows = candidate
+                    accepted = True
+                    break
+            if accepted:
+                break
+        if not accepted:
+            messages.append(f'Flexural section {i+1} {face}: no passing trial layout; engineer redesign needed')
+    for i, check in enumerate(checks(rows)):
+        if not passes(check):
+            messages.append(f'Final flexural section {i+1}: strength check NOT OK')
+    return rows, messages
 
 
 def equivalent_bar_diameter(row, face):
@@ -110,10 +139,11 @@ def equivalent_bar_diameter(row, face):
     return numerator / denominator
 
 
-def service_overrides(moments, uls_rows, bars, constants):
+def service_overrides(moments, uls_rows, bars, constants, *, inputs=None):
     rare=linked_demands(moments,'Rare Total'); quasi=linked_demands(moments,'Quasi Total')
     if len(uls_rows)!=16 or len(bars)!=16: raise ValueError('Incomplete reinforcement schedule')
     out={}
+    cover_mismatch = False
     for i,link in enumerate(_ULS_FLEXURAL_LINKS):
         component,_,_,_,depth_field,j,face,_=link
         row=bars[j]; u=uls_rows[i]
@@ -121,12 +151,31 @@ def service_overrides(moments, uls_rows, bars, constants):
         if component=='Top Slab': cover=constants['top_slab_top_cover_mm' if face=='Outer' else 'top_slab_bottom_cover_mm']
         elif component=='Bottom Slab': cover=constants['bottom_slab_cover_mm']
         else: cover=constants['side_wall_outer_cover_mm' if face=='Outer' else 'side_wall_inner_cover_mm']
+        # Actual face cover still defines the physical section depth.
+        # Only the crack-spacing equation uses the source comparison cover.
+        cover_mismatch |= not math.isclose(float(cover), SLS_CRACK_COVER_MM)
         d=float(u['d provided (mm)'])
+        h=d+cover+dia/2
+        # S12: the workbook's non-earth midspan depth used outer cover.
+        # For live SLS use the actual inner-face cover and current wall depth.
+        # Single-layer bar-centre approximation; engineer must confirm detailing.
+        if i == 11 and inputs is not None:
+            if component != 'Side Wall' or face != 'Inner':
+                raise ValueError('Unexpected S12 reinforcement mapping')
+            h=float(inputs.wall_thickness_m)*1000.0
+            d=h-float(cover)-dia/2
+        if not (0 < d < h):
+            raise ValueError(f'Invalid SLS section depth at S{i+1:02d}')
         out[f'S{i+1:02d}']={'rare_moment_tf_m_per_m':rare[i]['moment_tf_m_per_m'],
             'quasi_moment_tf_m_per_m':quasi[i]['moment_tf_m_per_m'],
-            'effective_depth_mm':d,'section_depth_mm':d+cover+dia/2,
+            'effective_depth_mm':d,'section_depth_mm':h,
             'provided_as_mm2_per_m':u['Ast provided (mm²/m)'],
-            'equivalent_bar_diameter_mm':equivalent_bar_diameter(row, face),'cover_mm':cover}
+            'equivalent_bar_diameter_mm':equivalent_bar_diameter(row, face),'cover_mm':SLS_CRACK_COVER_MM}
+    if cover_mismatch:
+        warnings.warn(
+            'SLS reference comparison uses 50 mm crack cover even where actual design cover differs. '
+            'Crack widths may be underestimated; engineer confirmation required before design submission.',
+            RuntimeWarning, stacklevel=2)
     return out
 
 
