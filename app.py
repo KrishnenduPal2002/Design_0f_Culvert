@@ -1510,8 +1510,8 @@ def _cached_design_normal_moments(current_inputs, solver_options):
 
 
 @st.cache_data(show_spinner=False, max_entries=4)
-def _cached_four_vehicle_ll_for_live_tables(current_inputs, modulus_gpa, scan_spacing,
-                                            mesh_divisions, chosen_vehicle, chosen_vehicle_inputs):
+def _cached_std_based_four_vehicle_ll(current_inputs, modulus_gpa, scan_spacing,
+                                            mesh_divisions, chosen_vehicle, chosen_vehicle_inputs, compression_only):
     """Pure-by-input live FEM evaluation; reruns on changed geometry/load values.
 
     Cached results are never represented as validated design actions.  The
@@ -1525,6 +1525,7 @@ def _cached_four_vehicle_ll_for_live_tables(current_inputs, modulus_gpa, scan_sp
         selected_vehicle_code=(chosen_vehicle if chosen_vehicle in
                                ('70rw', '40t', '70rt', 'sv385') else None),
         selected_vehicle_inputs=chosen_vehicle_inputs,
+        compression_only_springs=compression_only,
     )
 
 
@@ -1532,10 +1533,13 @@ with design_moment_calc_tab:
     st.subheader('Design moment due to different load combination')
     # Independent four-vehicle LL FEM preview. Never silently replace the
     # approved reference values until the numerical validation actually passes.
-    with st.expander('Four-vehicle LL FEM comparison (unverified)', expanded=False):
-        st.caption('Scans 70R(W), 40T, 70R(T), and SV at the current geometry. '
-                   'Checks the exact 26 moment and 16 shear selectors against '
-                   'reference values. The tables below remain unchanged.')
+    with st.expander('Four-vehicle LL FEM comparison', expanded=False):
+        st.caption('Recalculates 70R(W), 40T, 70R(T), and SV using the supplied STD model topology. '
+                   'The saved LL benchmark used 0.275 m side walls (3.275 m centreline span), '
+                   '0.250 m top slab, 0.275 m bottom slab, 3 m clear opening, 0.30 m fill, '
+                   '12 m length, 1000 tf/m³ subgrade and 0.25 m LL scan spacing. '
+                   'The original STD load commands are reused only for their source loading assumptions. '
+                   'Other loading conditions use regenerated sampled cases.')
         ll_scan_step = st.select_slider(
             'LL comparison scan spacing (m)',
             options=[0.10, 0.15, 0.25, 0.50], value=0.25,
@@ -1554,28 +1558,30 @@ with design_moment_calc_tab:
                         selected_vehicle_code=vehicle_code if vehicle_code in
                             ('70rw','40t','70rt','sv385') else None,
                         selected_vehicle_inputs=vehicle_inputs,
+                        compression_only_springs=frame_options.compression_only_springs,
                     )
-                st.session_state['ll_comparison_result'] = ll_check
-                st.session_state['ll_comparison_input_fingerprint'] = repr((
+                st.session_state['ll_std_comparison_result_v1'] = ll_check
+                st.session_state['ll_std_comparison_input_fingerprint_v1'] = repr((
                     inputs, frame_options.concrete_elastic_modulus_gpa,
                     frame_options.mesh_divisions_per_member,
-                    ll_scan_step, vehicle_code, vehicle_inputs,
+                    ll_scan_step, vehicle_code, vehicle_inputs, frame_options.compression_only_springs,
                 ))
             except (ValueError, TypeError, KeyError, OSError, RuntimeError) as exc:
                 st.error(f'Vehicle LL calculation unavailable: {exc}')
-        prior_ll=st.session_state.get('ll_comparison_result')
+        prior_ll=st.session_state.get('ll_std_comparison_result_v1')
         if prior_ll is not None:
             current_fingerprint=repr((inputs, frame_options.concrete_elastic_modulus_gpa,
                                       frame_options.mesh_divisions_per_member,
-                                      ll_scan_step, vehicle_code, vehicle_inputs))
-            if st.session_state.get('ll_comparison_input_fingerprint')!=current_fingerprint:
+                                      ll_scan_step, vehicle_code, vehicle_inputs, frame_options.compression_only_springs))
+            if st.session_state.get('ll_std_comparison_input_fingerprint_v1')!=current_fingerprint:
                 st.warning('Design Inputs changed. Click Calculate again: the earlier '
                            'vehicle comparison no longer describes this design.')
             else:
-                st.warning('Live LL remains UNVERIFIED. Do not use these results for '
-                           'structural design until member-end responses are validated.')
-                st.write(f"LL component checks within 0.025: "
-                         f"{prior_ll['matched']}/{prior_ll['tested']}")
+                if prior_ll['near_reference_case']:
+                    st.write(f"Source-case LL checks within 0.025: {prior_ll['matched']}/{prior_ll['tested']}")
+                else:
+                    st.warning('Inputs differ from the STD benchmark; the saved workbook values are not targets for this changed design.')
+                st.caption(prior_ll['validation'])
                 st.dataframe(prior_ll['comparison'], hide_index=True,
                              use_container_width=True, height=280)
 
@@ -1583,26 +1589,34 @@ with design_moment_calc_tab:
     # clearly labelled, unvalidated *alternative*, not an approval of the
     # independent vehicle model.  Only the data change, not the table layout.
     use_unverified_live_ll = st.checkbox(
-        'Use recalculated four-vehicle LL in Design Moment and Shear Force tables (UNVERIFIED)',
+        'Use recalculated four-vehicle LL in Design Moment and Shear Force tables',
         value=False, key='use_unverified_live_ll_in_tables',
-        help='Recomputes all four moving-vehicle FEM cases from Design Inputs; '
-             'results do not yet reproduce the original workbook consistently.',
+        help='Recomputes all four moving-vehicle cases from current inputs using the STD-based solver. '
+             'The 275 mm wall source benchmark passed; changed designs require validation.',
     )
     _live_ll_for_tables = None
     if use_unverified_live_ll:
-        st.warning('UNVERIFIED live-load model: resulting moments, shears and '
-                   'downstream totals must NOT be used for an approved structural design. '
-                   'Switch this option off to restore reference LL values.')
+        st.warning('Live LL results require engineer review. The original STD benchmark used 275 mm side walls; '
+                   'the original app defaults to 250 mm walls. No input thickness is overridden. '
+                   'Switch this option off to view the original reference LL values.')
         try:
             with st.spinner('Recalculating four-vehicle LL for current Design Inputs...'):
-                _live_ll_for_tables = _cached_four_vehicle_ll_for_live_tables(
+                _live_ll_for_tables = _cached_std_based_four_vehicle_ll(
                     inputs, float(frame_options.concrete_elastic_modulus_gpa),
                     float(ll_scan_step), int(frame_options.mesh_divisions_per_member),
-                    vehicle_code, vehicle_inputs,
+                    vehicle_code, vehicle_inputs, frame_options.compression_only_springs,
                 )
-            st.caption('Four-vehicle LL component comparisons within 0.025: '
-                       f"{_live_ll_for_tables['matched']}/{_live_ll_for_tables['tested']}. "
-                       'This is not a validation pass.')
+            if _live_ll_for_tables['near_reference_case']:
+                st.caption(f"STD reference benchmark: {_live_ll_for_tables['matched']}/{_live_ll_for_tables['tested']} "
+                           "LL component checks within 0.025. This is a numerical benchmark, not design approval.")
+            else:
+                st.warning('Current inputs differ from the original STD reference model. '
+                           'LL values are recalculated for the entered inputs; agreement with the old Excel '
+                           'values is not expected or a validation test for this changed design. '
+                           'The source LL benchmark uses 0.275 m walls, not 0.250 m.')
+            st.caption('Vehicle load basis: ' + '; '.join(
+                f"{v}: {m['load_basis']} ({m['sample_count']} cases)"
+                for v,m in _live_ll_for_tables['scan_info'].items()))
         except (ValueError, TypeError, KeyError, OSError, RuntimeError,
                 ArithmeticError, AssertionError) as exc:
             st.error('Live vehicle LL could not be calculated. Both tables retain '
@@ -1619,7 +1633,8 @@ with design_moment_calc_tab:
     if st.button('Reset Design Moments', key='design_moment_reset'):
         st.session_state['design_moment_editor_version'] += 1
 
-    original_moments = default_design_moment_rows()
+    # The source quasi-permanent combination excludes vehicle LL in all 26 rows.
+    original_moments = [{**row, 'Quasi LL': 0.0} for row in default_design_moment_rows()]
     if _live_ll_for_tables is not None:
         computed_ll_rows = _live_ll_for_tables['moment']
         if len(computed_ll_rows) != len(original_moments) or any(
@@ -1631,11 +1646,10 @@ with design_moment_calc_tab:
         else:
             original_moments = [
                 {**old, **{column: float(new[column]) for column in
-                          ('ULS LL', 'Rare LL', 'Quasi LL')}}
+                          ('ULS LL', 'Rare LL')}, 'Quasi LL': 0.0}
                 for old, new in zip(original_moments, computed_ll_rows)
             ]
-    # Update only the three Normal force columns. The original LL fields are
-    # NOT altered: the independent vehicle FEM still fails the reference audit.
+    # Update the three Normal force columns independently of the four-vehicle LL calculation.
     # If live computation fails, preserve the reference but warn conspicuously;
     # do not claim stale values represent the user's changed geometry.
     _live_static_normal_ok = False
@@ -1654,8 +1668,9 @@ with design_moment_calc_tab:
         ]
         _live_static_normal_ok = True
         st.caption('Normal moments are recalculated from the current geometry, '
-                   'soil pressure and source static factor sets. Four-vehicle LL '
-                   'values remain reference inputs pending validation.')
+                   'soil pressure and source static factor sets. Quasi LL is zero by the '
+                   'source combination rule. ULS/Rare LL are live only when the '
+                   'unverified live option is enabled.')
     except (ValueError, TypeError, KeyError, ArithmeticError, RuntimeError) as exc:
         st.warning('Live Normal FEM values unavailable; Normal and LL columns '
                    'show reference inputs, NOT recalculated actions: ' + str(exc))
@@ -1666,10 +1681,10 @@ with design_moment_calc_tab:
     ]
     edited_moments = st.data_editor(
         moment_input_rows,
-        key=(f"design_moment_editor_{st.session_state['design_moment_editor_version']}_"
+        key=(f"design_moment_editor_quasi_zero_v1_{st.session_state['design_moment_editor_version']}_"
              f"{hashlib.sha256(repr([(r['ULS Normal'], r['Rare Normal'], r['Quasi Normal'], r['ULS LL'], r['Rare LL'], r['Quasi LL']) for r in original_moments]).encode()).hexdigest()[:12]}"),
         hide_index=True, use_container_width=True, num_rows='fixed', height=440,
-        disabled=['Member', 'Location', 'Face', 'ULS Normal', 'Rare Normal', 'Quasi Normal'] + (['ULS LL', 'Rare LL', 'Quasi LL'] if _live_ll_for_tables is not None else []),
+        disabled=['Member', 'Location', 'Face', 'ULS Normal', 'Rare Normal', 'Quasi Normal', 'Quasi LL'] + (['ULS LL', 'Rare LL'] if _live_ll_for_tables is not None else []),
         column_config={
             'Member': st.column_config.TextColumn('Member', width='small'),
             'Location': st.column_config.TextColumn('Location', width='medium'),
@@ -1684,7 +1699,7 @@ with design_moment_calc_tab:
         # Preserve the original Excel row labels for source traceability, without
         # exposing any internal IDs or requiring an Excel file on Streamlit Cloud.
         rows_for_calc = [
-            {**original, **edited}
+            {**original, **edited, 'Quasi LL': 0.0}
             for original, edited in zip(original_moments, edited_moments)
         ]
         moment_result = calculate_design_moment_combinations(rows_for_calc)
@@ -2480,7 +2495,8 @@ with sls_calc_tab:
             rare_traffic_factor = st.number_input("Rare traffic multiplier", min_value=0.0,
                 value=1.0, step=0.1, key="live_sls_rare_traffic")
             quasi_traffic_factor = st.number_input("Quasi traffic multiplier", min_value=0.0,
-                value=0.0, step=0.1, key="live_sls_quasi_traffic")
+                value=0.0, step=0.1, key="live_sls_quasi_traffic_zero_v1", disabled=True,
+                help="The original quasi-permanent combination excludes vehicle LL.")
         with slsc2:
             rare_thermal_factor = st.number_input("Rare thermal multiplier", min_value=0.0,
                 value=1.0, step=0.1, key="live_sls_rare_thermal")
@@ -2503,7 +2519,7 @@ with sls_calc_tab:
                     options=frame_options, thermal=service_thermal)
                 return calculate_live_frame_flexural_demands(inputs, solved)
             rare_demands = solve_service_case(rare_traffic_factor, rare_thermal_factor)
-            quasi_demands = solve_service_case(quasi_traffic_factor, quasi_thermal_factor)
+            quasi_demands = solve_service_case(0.0, quasi_thermal_factor)
             if len(rare_demands) != 16 or len(quasi_demands) != 16:
                 raise ValueError("FEM demand sections do not match the 16-row SLS schedule")
             for j in range(16):
