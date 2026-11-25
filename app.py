@@ -376,6 +376,19 @@ with st.sidebar:
                                  step=0.0000001, format='%.7f',
                                  key='temperature_alpha_per_c')
 
+    st.caption("Uniform temperature parameters")
+    max_air=st.number_input('Maximum shade air temperature (°C)',
+        value=42.2, step=0.1, format='%.2f', key='temp_air_max')
+    min_air=st.number_input('Minimum shade air temperature (°C)',
+        value=2.0, step=0.1, format='%.2f', key='temp_air_min')
+    creep_e=st.number_input('Concrete modulus considering creep (t/m²)',
+        value=1620000.0, min_value=1.0, step=1000.0,
+        format='%.2e', key='temp_creep_E')
+    bridge_max=st.number_input('Bridge temperature at restraint — Maximum (°C)',
+        value=32.1, step=0.1, format='%.2f', key='temp_restraint_max')
+    bridge_min=st.number_input('Bridge temperature at restraint — Minimum (°C)',
+        value=12.1, step=0.1, format='%.2f', key='temp_restraint_min')
+
     st.subheader("Stage 3 — Braking-force reference")
     force_70rw = st.number_input("Class 70R(W) contribution (tf)", min_value=0.0, value=6.8, step=0.1)
     force_40t = st.number_input("Class 40T contribution (tf)", min_value=0.0, value=8.0, step=0.1)
@@ -1415,20 +1428,6 @@ with temperature_calc_tab:
         _temperature_gradient_panel('fall')
     with uniform_tab:
         st.markdown('**Effect of uniform temperature — IRC 6:2017 Clause 215.2**')
-        uc1,uc2=st.columns(2)
-        with uc1:
-            max_air=st.number_input('Maximum shade air temperature (°C)',
-                value=42.2, step=0.1, format='%.2f', key='temp_air_max', disabled=True)
-            min_air=st.number_input('Minimum shade air temperature (°C)',
-                value=2.0, step=0.1, format='%.2f', key='temp_air_min', disabled=True)
-            creep_e=st.number_input('Concrete modulus considering creep (t/m²)',
-                value=1620000.0, min_value=1.0, step=1000.0,
-                format='%.2e', key='temp_creep_E', disabled=True)
-        with uc2:
-            bridge_max=st.number_input('Bridge temperature at restraint — Maximum (°C)',
-                value=32.1, step=0.1, format='%.2f', key='temp_restraint_max', disabled=True)
-            bridge_min=st.number_input('Bridge temperature at restraint — Minimum (°C)',
-                value=12.1, step=0.1, format='%.2f', key='temp_restraint_min', disabled=True)
         try:
             uniform=calculate_uniform_temperature(
                 maximum_air_c=max_air, minimum_air_c=min_air,
