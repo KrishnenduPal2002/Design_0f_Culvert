@@ -2554,44 +2554,4 @@ with tab_download:
     except Exception as exc:
         st.error(f"Design Note PDF unavailable: {exc}")
 
-    st.subheader("CAD Drawings (DXF)")
-    gad_dxf = d2_dxf = dxf_bytes = None
-    cad1, cad2, cad3 = st.columns(3)
-    with cad1:
-        try:
-            gad_dxf = export_sheet1_dxf(inputs, gad_inputs)
-            st.download_button("Download Sheet 1 — General Arrangement (DXF)",
-                               data=gad_dxf, file_name="GAD_Sheet1_Review.dxf",
-                               mime="application/dxf", key="gad_sheet1_dxf", on_click="ignore")
-        except Exception as exc:
-            st.error(f"Sheet 1 DXF unavailable: {exc}")
-    with cad2:
-        try:
-            d2_dxf = export_sheet2_dxf(inputs, detailed)
-            st.download_button("Download Sheet 2 — Detailed Sections (DXF)",
-                               data=d2_dxf, file_name="GAD_Sheet2_Review.dxf",
-                               mime="application/dxf", key="sheet2_dxf", on_click="ignore")
-        except Exception as exc:
-            st.error(f"Sheet 2 DXF unavailable: {exc}")
-    with cad3:
-        try:
-            import src.reinforcement_drawings as rd
-            cad_live_data = rd.live_drawing_data(inputs, result.get('live_bbs'), design_values)
-            with tempfile.TemporaryDirectory() as tmp:
-                dxf_file = rd.live_reinforcement_dxf(inputs, cad_live_data, Path(tmp)/"culvert_reinforcement_review.dxf")
-                dxf_bytes = dxf_file.read_bytes()
-            st.download_button("Download Sheet 3 — Reinforcement (DXF)",
-                               data=dxf_bytes, file_name="culvert_reinforcement_reference.dxf",
-                               mime="application/dxf", key="stage8_review_dxf", on_click="ignore")
-        except Exception as exc:
-            st.error(f"Sheet 3 DXF unavailable: {exc}")
 
-    st.subheader("Drawing PDF")
-    try:
-        from src.drawing_pdf import build_drawing_pdf
-        drawing_pdf = build_drawing_pdf(gad_dxf, d2_dxf, dxf_bytes)
-        st.download_button("Download All Drawings (PDF)", data=drawing_pdf,
-                           file_name="RCC_Box_Culvert_Drawings.pdf", mime="application/pdf",
-                           key="combined_live_drawing_pdf", on_click="ignore")
-    except Exception as exc:
-        st.error(f"Drawing PDF unavailable: {exc}")
