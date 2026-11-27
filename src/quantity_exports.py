@@ -5,7 +5,7 @@ CSV values are trial quantities, not approved fabrication schedules.
 import csv
 import io
 import math
-from .bbs import reference_bars
+from .bbs import reference_bars, bbs_shape_name
 from .boq import reference_boq_items
 
 BBS_COLUMNS = ('id','mark','member','diameter_mm','spacing_mm','cut_length_mm','bar_count')
@@ -18,14 +18,16 @@ def _csv_bytes(rows, fields):
     writer.writerows(rows)
     return buff.getvalue().encode('utf-8-sig')
 
-def bbs_template_csv() -> bytes:
-    return _csv_bytes(reference_bars(),BBS_COLUMNS)
+def bbs_template_csv(rows=None) -> bytes:
+    rows=reference_bars() if rows is None else rows
+    return _csv_bytes([r for r in rows if r['mark']!='w1a'],BBS_COLUMNS)
 
 def boq_template_csv() -> bytes:
     return _csv_bytes([dict(r,quantity=r['reference_quantity']) for r in reference_boq_items()], BOQ_COLUMNS)
 
 def bbs_result_csv(result: dict) -> bytes:
-    return _csv_bytes(result['lines'], ('id','mark','member','diameter_mm','spacing_mm','cut_length_mm','bar_count','length_total_m','unit_weight_kg_m','weight_kg','status'))
+    rows=[dict(r, serial_no=i, shape=bbs_shape_name(r['mark'])) for i,r in enumerate(result['lines'],1)]
+    return _csv_bytes(rows, ('serial_no','id','mark','shape','diameter_mm','spacing_mm','m1_mm','m2_mm','m3_mm','cut_length_mm','bar_count','length_total_m','unit_weight_kg_m','weight_kg','member','status'))
 
 def boq_result_csv(result: dict) -> bytes:
     return _csv_bytes(result['reference_items'],('id','description','unit','reference_quantity','quantity','quantity_source'))
@@ -39,8 +41,13 @@ def _parse(data,fields):
     return rows
 
 def parse_bbs_csv(data:bytes|str)->list[dict]:
-    reference={r['id']:r for r in reference_bars()}
+    reference={r['id']:r for r in reference_bars() if r['mark']!='w1a'}
     input_rows=_parse(data,BBS_COLUMNS)
+    legacy=[r for r in input_rows if r['id'] not in reference and r['mark']=='w1a']
+    if legacy:
+        if len(legacy)!=1 or float(legacy[0]['diameter_mm'])!=0:
+            raise ValueError('Active or duplicate w1a is incompatible with the 25-mark schedule')
+        input_rows=[r for r in input_rows if r not in legacy]
     if len(input_rows)!=len(reference) or {r['id'] for r in input_rows}!=set(reference):
         raise ValueError('BBS CSV must contain exactly all reference mark ids; do not add/remove rows')
     out=[]

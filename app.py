@@ -61,8 +61,9 @@ except ModuleNotFoundError as exc:
     solve_reference_case = None
     run_reference_static_benchmark = None
 from src.sls_design import calculate_sls_design, sls_demands_csv_template, parse_sls_demands_csv, steel_details_from_uls, reference_table as sls_reference_table
-from src.bbs import calculate_bbs, reference_bars
-from src.boq import calculate_boq, reference_boq_items
+from src.bbs import calculate_bbs, reference_bars, calculate_live_bbs, bbs_shape_name
+from src.boq import (calculate_boq, reference_boq_items, boq_excel_style_schedule,
+                     boq_display_rows, boq_schedule_csv)
 from src.quantity_exports import (bbs_template_csv, boq_template_csv, bbs_result_csv,
                                   boq_result_csv, parse_bbs_csv, parse_boq_csv)
 from src.quantity_charts import bbs_weight_chart, boq_concrete_chart
@@ -811,29 +812,14 @@ with tab_drawing:
                                    invert_level_right_m=il2)
             gad_pdf=make_sheet1_pdf(inputs,gad_inputs)
             gad_png=sheet1_preview_png(inputs,gad_inputs,dpi=115)
-            gad_dxf=export_sheet1_dxf(inputs,gad_inputs)
-            compare=st.checkbox("Compare with original PDF Sheet 1",value=True,key="gad_compare")
-            reference_image=Path(__file__).resolve().parent/"data"/"original_gad_sheet1_reference.png"
-            if compare and reference_image.exists():
-                col_left,col_right=st.columns(2)
-                with col_left:
-                    st.markdown("**Original Sheet 1 — supplied PDF**")
-                    st.image(str(reference_image),use_container_width=True)
-                with col_right:
-                    st.markdown("**Python-generated Sheet 1 — editable**")
-                    st.image(gad_png,use_container_width=True)
-            else:
-                st.image(gad_png,use_container_width=True,caption="Reconstructed A2 landscape General Arrangement Drawing")
-            d1,d2,d3=st.columns(3)
+            st.image(gad_png,use_container_width=True)
+            d1,d2=st.columns(2)
             with d1:
                 st.download_button("Download Sheet 1 PDF",gad_pdf,file_name="GAD_Sheet1_Review.pdf",
                                    mime="application/pdf",key="gad_sheet1_pdf")
             with d2:
                 st.download_button("Download Sheet 1 PNG",gad_png,file_name="GAD_Sheet1_Review.png",
                                    mime="image/png",key="gad_sheet1_png")
-            with d3:
-                st.download_button("Download Sheet 1 DXF (paper layout)",gad_dxf,
-                                   file_name="GAD_Sheet1_Review.dxf",mime="application/dxf",key="gad_sheet1_dxf")
             pass  # removed Streamlit reminder banner
         except Exception as error:
             st.error(f"GAD Sheet 1 generation failed: {error}")
@@ -865,30 +851,14 @@ with tab_drawing:
                                   shear_key_toe_mm=int(key_toe))
             d2_pdf=make_sheet2_pdf(inputs,detailed)
             d2_png=sheet2_preview_png(inputs,detailed,dpi=115)
-            d2_dxf=export_sheet2_dxf(inputs,detailed)
-            ref_sheet2=Path(__file__).resolve().parent/"data"/"original_gad_sheet2_reference.png"
-            compare_d2=st.checkbox("Compare generated Sheet 2 with original PDF",value=True,
-                                   key="sheet2_compare")
-            if compare_d2 and ref_sheet2.exists():
-                orig_col,draw_col=st.columns(2)
-                with orig_col:
-                    st.markdown("**Original Sheet 2 - supplied PDF**")
-                    st.image(str(ref_sheet2),use_container_width=True)
-                with draw_col:
-                    st.markdown("**Generated Sheet 2 - Python**")
-                    st.image(d2_png,use_container_width=True)
-            else:
-                st.image(d2_png,use_container_width=True)
-            f1,f2,f3=st.columns(3)
+            st.image(d2_png,use_container_width=True)
+            f1,f2=st.columns(2)
             with f1:
                 st.download_button("Download Sheet 2 PDF",d2_pdf,"GAD_Sheet2_Review.pdf",
                                    "application/pdf",key="sheet2_pdf")
             with f2:
                 st.download_button("Download Sheet 2 PNG",d2_png,"GAD_Sheet2_Review.png",
                                    "image/png",key="sheet2_png")
-            with f3:
-                st.download_button("Download Sheet 2 DXF (paper layout)",d2_dxf,"GAD_Sheet2_Review.dxf",
-                                   "application/dxf",key="sheet2_dxf")
             pass  # removed Streamlit reminder banner
         except Exception as error:
             st.error(f"Detailed Section Sheet 2 generation failed: {error}")
@@ -1971,6 +1941,7 @@ def _automatic_distribution_rows(uls_rows):
         })
     return rows
 
+_bbs_distribution = None
 with distribution_reinforcement_calc_tab:
     st.subheader('Distribution Reinforcement')
     st.markdown('**Transverse steel**')
@@ -2009,6 +1980,7 @@ with distribution_reinforcement_calc_tab:
                 'Check': st.column_config.TextColumn('Check', width='small'),
             },
         )
+        _bbs_distribution = distribution_result['rows']
         passed = distribution_result['pass_count']
         st.write(f'**Checks:** {passed} OK / {distribution_result["row_count"]} rows')
         _report_messages.append(str('Required transverse steel is automatically 20% of the linked 16-row ULS '
@@ -2022,6 +1994,9 @@ with distribution_reinforcement_calc_tab:
 
 # Reference-equivalent ULS shear-strength check, immediately after
 # Distribution Reinforcement in the Calculations tab order.
+_bbs_shear = None
+_bbs_stirrups = []
+_bbs_shear_failed = False
 with uls_shear_strength_calc_tab:
     st.subheader('ULS Shear Strength Check')
     st.markdown('**Check for strength (ULS : Basic Combination) (Max. Shear force)**')
@@ -2074,6 +2049,7 @@ with uls_shear_strength_calc_tab:
             dc_shear=calculate_design_constants(inputs,_uls_linked_inputs['Design Constants'])
             stirrup_defaults=trial_stirrups(shear_strength,dc_shear['values']['fck_mpa'],dc_shear['values']['fy_mpa'])
             if not stirrup_defaults:
+                _bbs_shear = shear_strength
                 st.info('No shear-critical sections in the current 16-row schedule. '
                         'No stirrups are automatically designed by this table.')
             else:
@@ -2083,6 +2059,9 @@ with uls_shear_strength_calc_tab:
                     fck_mpa=dc_shear['values']['fck_mpa'],
                     fy_mpa=dc_shear['values']['fy_mpa'],
                 )
+                _bbs_shear = shear_strength
+                _bbs_stirrups = stirrup_defaults
+                _bbs_shear_failed = bool(stirrup_table['fail_count'])
                 if stirrup_table['fail_count']:
                     _report_notice(st.error, f"{stirrup_table['fail_count']} trial stirrup layout(s) fail capacity, minimum steel or spacing checks; engineer redesign required.")
                 st.markdown('**Check for strength (ULS: Basic Combination) — Shear with reinforcement**')
@@ -2308,7 +2287,6 @@ with sls_calc_tab:
     sls_ecm = float(_uls_linked_inputs['Design Constants']['ecm_gpa'])
     _report_messages.append(str(f'SLS uses Es = {sls_es:g} GPa from Design Constants and Ecm = {sls_ecm:g} GPa from the shared Design Constants / FEM input. This replaces the reference modular ratio assumption; engineer confirmation required.'))
     _report_messages.append(str('Quasi crack-width comparison uses 50 mm cover as requested, even where design cover is 75 mm. Crack widths may be underestimated; not approved for construction. S12 inner-face effective depth uses current wall thickness and inner cover; verify detailing and the corresponding ULS reference depth.'))
-    st.markdown("**Engineering review required — 50 mm crack-width cover may underestimate cracking where actual cover is greater.**")
     sls_kt = 0.5
     sls_k1 = 0.8
     sls_k2 = 0.5
@@ -2395,54 +2373,112 @@ with sls_calc_tab:
 
 # Stage 7: quantity worksheets are not structural design checks. They use
 # reference cut lengths/counts and general BOQ quantities unless edited by sir.
+def _bbs_shape_image(mark):
+    """Small reference sketch, not a scaled or approved bending detail."""
+    import base64
+    from PIL import Image, ImageDraw
+    image = Image.new('RGB', (160, 52), 'white')
+    pen = ImageDraw.Draw(image)
+    name = bbs_shape_name(mark)
+    if name in ('U', 'Inverted U'):
+        a, b = (12, 36) if name == 'U' else (36, 12)
+        pen.line([(28,a),(28,b),(132,b),(132,a)],fill='black',width=2)
+        pen.text((5,20),'M1',fill='black')
+        pen.text((69,18),'M2',fill='black')
+        pen.text((138,20),'M3',fill='black')
+    elif name == 'L':
+        pen.line([(48,38),(48,12),(112,12)],fill='black',width=2)
+        pen.text((22,20),'M1',fill='black'); pen.text((72,16),'M2',fill='black')
+    elif name.startswith('Straight'):
+        pen.line([(24,23),(136,23)],fill='black',width=2)
+        pen.text((70,29),'M2',fill='black')
+    elif name.startswith('Haunch'):
+        pen.line([(30,40),(58,40),(105,9),(105,2)],fill='black',width=2)
+        pen.text((29,24),'M1',fill='black'); pen.text((84,29),'M2',fill='black'); pen.text((111,4),'M3',fill='black')
+    else:
+        pen.text((16,19),'Shape unverified',fill='black')
+    buf=io.BytesIO(); image.save(buf,format='PNG')
+    return 'data:image/png;base64,'+base64.b64encode(buf.getvalue()).decode('ascii')
+
+
+def _bbs_display_rows(lines):
+    return [{'Sl No':i, 'Bar mark':r['mark'],
+             'Dia (mm)':r['diameter_mm'], 'Spacing (mm)':r['spacing_mm'],
+             'M1 (mm)':r['m1_mm'], 'M2 (mm)':r['m2_mm'], 'M3 (mm)':r['m3_mm'],
+             'Cut length (mm)':r['cut_length_mm'], 'Bar count':r['bar_count'],
+             'Total length (m)':r['length_total_m'], 'Wt./R m (kg/m)':r['unit_weight_kg_m'],
+             'Wt. (kg)':r['weight_kg'], 'Member':r['member']}
+            for i,r in enumerate(lines,1)]
+
+
 with tab_bbs:
     st.subheader("Stage 7 — Bar Bending Schedule (BBS)")
-    pass  # removed Streamlit reminder banner
-    _report_messages.append(str("Change bar diameter, cutting length or count to calculate a trial steel quantity. "
-               "Only an approved reinforcement drawing and engineer-reviewed schedule can authorize fabrication."))
     bbs_col1,bbs_col2=st.columns(2)
     with bbs_col1:
         allowance=st.number_input("Additional lap/bend allowance (%) — reference 5%", min_value=0.0,
                                   max_value=100.0, value=5.0, step=0.5, key="bbs_allowance_pct")
-    with bbs_col2:
-        st.download_button("Download editable BBS template (CSV)", bbs_template_csv(),
-                           file_name="bbs_input_template.csv",mime="text/csv",key="bbs_template")
-    bbs_upload=st.file_uploader("Optional: import saved BBS template",type=["csv"],key="bbs_upload")
-    bbs_base=reference_bars()
-    if bbs_upload is not None:
-        try:
-            bbs_base=parse_bbs_csv(bbs_upload.getvalue())
-            pass  # removed Streamlit reminder banner
-        except (ValueError,TypeError) as exc:
-            st.error(f"BBS CSV rejected: {exc}")
-            st.stop()
-    edit_bbs=[{'id':r['id'],'Bar mark':r['mark'],'Member':r['member'],
-               'Dia (mm)':float(r['diameter_mm']),
-               'Spacing (mm)':float(r['spacing_mm']) if r['spacing_mm'] is not None else 0.0,
-               'Cut length (mm)':float(r['cut_length_mm']), 'Bar count':int(r['bar_count'])}
-              for r in bbs_base]
-    edited_bbs=st.data_editor(edit_bbs,disabled=['id','Bar mark','Member'],
-                              use_container_width=True,hide_index=True,num_rows='fixed',
-                              key='stage7_bbs_editor',height=425)
-    if hasattr(edited_bbs,'to_dict'):
-        edited_bbs=edited_bbs.to_dict('records')
-    index_bbs={r['id']:dict(r) for r in bbs_base}
-    for r in edited_bbs:
-        entry=index_bbs[r['id']]
-        entry['diameter_mm']=float(r['Dia (mm)'])
-        entry['cut_length_mm']=float(r['Cut length (mm)'])
-        entry['bar_count']=float(r['Bar count'])
-        entry['spacing_mm']=float(r['Spacing (mm)'])
     try:
-        bbs_result=calculate_bbs(list(index_bbs.values()),allowance)
-        result['bbs']=bbs_result
-        result['boq']=calculate_boq(inputs,bbs_result)
-        result['reinforcement_review']=build_reinforcement_review(inputs,bbs_result)
+        if _uls_linked_inputs.get('Flexural R/F') is None or _bbs_distribution is None:
+            raise ValueError('Current flexural or distribution reinforcement unavailable')
+        bbs_result=calculate_live_bbs(inputs, design_values,
+            _uls_linked_inputs['Flexural R/F'], _bbs_distribution,
+            _bbs_shear, _bbs_stirrups, allowance)
+        if _bbs_shear_failed:
+            for line in bbs_result['lines']:
+                if line['mark']=='bs6':
+                    line['status'] += '; live shear check NOT OK'
+        result['live_bbs']=bbs_result
+    except (ValueError,TypeError,KeyError,ArithmeticError,IndexError) as exc:
+        bbs_result=None
+        st.error(f"Cannot calculate live BBS: {exc}")
+    with bbs_col2:
+        st.download_button("Download editable BBS template (CSV)",
+                           bbs_template_csv(bbs_result['lines']) if bbs_result else b'',
+                           file_name="bbs_input_template.csv",mime="text/csv",key="bbs_template",
+                           disabled=bbs_result is None or not bbs_result['quantity_coverage_complete'])
+    bbs_upload=st.file_uploader("Optional: import saved BBS template",type=["csv"],key="bbs_upload")
+    if bbs_result is not None:
+        if bbs_upload is not None:
+            try:
+                saved=parse_bbs_csv(bbs_upload.getvalue())
+                live={r['id']:r for r in bbs_result['lines']}
+                if not bbs_result['quantity_coverage_complete']:
+                    raise ValueError('Current calculated schedule is incomplete')
+                for row in saved:
+                    for field in ('diameter_mm','spacing_mm','cut_length_mm','bar_count'):
+                        x,y=row[field],live[row['id']][field]
+                        if x is None or y is None:
+                            same=x is None and y is None
+                        else:
+                            same=math.isclose(float(x),float(y),rel_tol=1e-9,abs_tol=1e-7)
+                        if not same:
+                            raise ValueError('Saved CSV differs from current calculations; live values retained')
+            except (ValueError,TypeError,KeyError) as exc:
+                st.error(f"BBS CSV rejected: {exc}")
+        edit_bbs=_bbs_display_rows(bbs_result['lines'])
+        st.data_editor(edit_bbs,disabled=True,use_container_width=True,hide_index=True,
+                       num_rows='fixed',key='stage7_bbs_editor',height=425,
+                       column_config={'Wt./R m (kg/m)':st.column_config.NumberColumn(format='%.4f'),
+                                      'Wt. (kg)':st.column_config.NumberColumn(format='%.3f'),
+                                      'Total length (m)':st.column_config.NumberColumn(format='%.3f')})
+        if bbs_result['quantity_coverage_complete']:
+            # Preserve the existing downstream hand-off only for a complete quantity estimate.
+            result['bbs']=bbs_result
+            result['boq']=calculate_boq(inputs,bbs_result)
+            result['reinforcement_review']=build_reinforcement_review(inputs,bbs_result)
         bm1,bm2,bm3=st.columns(3)
-        bm1.metric('Scheduled steel (before allowance)',f"{bbs_result['net_steel_kg']:,.2f} kg")
-        bm2.metric('Allowance',f"{bbs_result['allowance_kg']:,.2f} kg")
-        bm3.metric('Scheduled steel (total)',f"{bbs_result['total_steel_t']:.3f} t")
-        st.dataframe([{'Bar mark':x['mark'],'Member':x['member'],'Weight (kg)':round(x['weight_kg'],3),
+        complete=bbs_result['quantity_coverage_complete']
+        # Display calculated subtotal even when some bar marks are unresolved.
+        # Do not use a partial subtotal as a complete downstream BOQ quantity.
+        net = bbs_result['net_steel_kg'] if complete else bbs_result['partial_net_steel_kg']
+        extra = net * allowance / 100.0
+        gross_t = (net + extra) / 1000.0
+        suffix = '' if complete else ' (partial)'
+        bm1.metric('Scheduled steel (before allowance)' + suffix, f'{net:,.2f} kg')
+        bm2.metric('Allowance' + suffix, f'{extra:,.2f} kg')
+        bm3.metric('Scheduled steel (total)' + suffix, f'{gross_t:.3f} t')
+        st.dataframe([{'Bar mark':x['mark'],'Member':x['member'],
+                       'Weight (kg)':round(x['weight_kg'],3) if x['weight_kg'] is not None else None,
                        'Status':x['status']} for x in bbs_result['lines']],use_container_width=True,
                      hide_index=True,height=380)
         plot=bbs_weight_chart(bbs_result)
@@ -2450,103 +2486,58 @@ with tab_bbs:
         plt.close(plot)
         st.download_button('Download calculated BBS (CSV)',bbs_result_csv(bbs_result),
                            file_name='bbs_calculated_trial.csv',mime='text/csv',key='bbs_result')
-        for msg in bbs_result['warnings']:
-            pass  # removed Streamlit reminder banner
-    except (ValueError,TypeError) as exc:
-        st.error(f"Cannot calculate BBS: {exc}")
 
 with tab_boq:
     st.subheader("Stage 7 — Bill of Quantities (BOQ)")
-    pass  # removed Streamlit reminder banner
-    _report_messages.append(str("SLS drawings are not required for this tab. The charts here are quantity summaries, "
-               "not construction drawings or reinforcement detailing."))
-    st.download_button('Download editable BOQ template (CSV)',boq_template_csv(),
-                       file_name='boq_input_template.csv',mime='text/csv',key='boq_template')
-    boq_upload=st.file_uploader('Optional: import saved BOQ template',type=['csv'],key='boq_upload')
-    from_csv_overrides={}
-    if boq_upload is not None:
-        try:
-            from_csv_overrides=parse_boq_csv(boq_upload.getvalue())
-        except (ValueError,TypeError) as exc:
-            st.error(f"BOQ CSV rejected: {exc}")
-            st.stop()
-    source_boq=reference_boq_items()
-    boq_edit_rows=[{'id':x['id'], 'Item':x['description'], 'Unit':x['unit'],
-                    'Excel reference':float(x['reference_quantity']),
-                    'Working quantity':float(from_csv_overrides.get(x['id'],x['reference_quantity']))}
-                   for x in source_boq]
-    edited_boq=st.data_editor(boq_edit_rows,disabled=['id','Item','Unit','Excel reference'],
-                              use_container_width=True,hide_index=True,num_rows='fixed',
-                              key='stage7_boq_editor',height=440)
-    if hasattr(edited_boq,'to_dict'):
-        edited_boq=edited_boq.to_dict('records')
-    overrides={}
-    for row in edited_boq:
-        original=next(x['reference_quantity'] for x in source_boq if x['id']==row['id'])
-        newval=float(row['Working quantity'])
-        if not math.isclose(newval,original,rel_tol=0,abs_tol=1e-9):
-            overrides[row['id']]=newval
     try:
-        boq_result=calculate_boq(inputs,result.get('bbs'),overrides)
-        result['boq']=boq_result
-        core=boq_result['core_quantities']
-        st.markdown('#### Geometry-linked culvert quantities')
-        st.dataframe(core,hide_index=True,use_container_width=True)
-        vol=next(x['quantity'] for x in core if x['description'].startswith('TOTAL'))
-        metric1,metric2,metric3=st.columns(3)
-        metric1.metric('Current culvert concrete',f'{vol:,.3f} m³')
-        metric2.metric('Original BOQ culvert concrete',f"{boq_result['reference_box_concrete_m3']:,.3f} m³")
-        metric3.metric('BOQ steel estimator vs BBS',f"{boq_result['boq_vs_bbs_rebar_difference_t']:+,.3f} t")
-        plot=boq_concrete_chart(boq_result)
-        st.pyplot(plot)
-        plt.close(plot)
-        st.download_button('Download reviewed BOQ quantities (CSV)',boq_result_csv(boq_result),
-                           file_name='boq_calculated_trial.csv',mime='text/csv',key='boq_result')
-        for message in boq_result['warnings']:
-            pass  # removed Streamlit reminder banner
-    except (ValueError,TypeError) as exc:
+        schedule = boq_excel_style_schedule(inputs)
+        live_bbs = result.get('live_bbs')
+        complete_bbs = live_bbs if live_bbs and live_bbs.get('quantity_coverage_complete') else None
+        boq_result = calculate_boq(inputs, complete_bbs)
+        boq_result['concrete_schedule'] = schedule
+        result['boq'] = boq_result
+        st.dataframe(
+            boq_display_rows(schedule),
+            hide_index=True, use_container_width=True,
+            height=35 * (len(schedule['rows']) + 1) + 3,
+            column_config={
+                'Item Description': st.column_config.TextColumn(width='large'),
+                'Nos': st.column_config.NumberColumn(format='%d'),
+                'Length (m)': st.column_config.NumberColumn(format='%.3f'),
+                'Width (m)': st.column_config.NumberColumn(format='%.3f'),
+                'Depth/Height (m)': st.column_config.NumberColumn(format='%.3f'),
+                'AREA (Sqm.)': st.column_config.NumberColumn(format='%.3f'),
+                'Quantity': st.column_config.NumberColumn(format='%.2f'),
+            },
+        )
+        st.download_button('Download calculated BOQ (CSV)', boq_schedule_csv(schedule),
+                           file_name='boq_concrete.csv', mime='text/csv', key='boq_result')
+    except (ValueError, TypeError, KeyError) as exc:
         st.error(f"Cannot calculate BOQ: {exc}")
 
 with tab_rebar:
     st.subheader("Stage 8 — Reinforcement drawing review sheets")
-    pass  # removed Streamlit reminder banner
-    pass  # removed Streamlit reminder banner
-    rebar_bbs = result.get("bbs")
-    rebar_review = build_reinforcement_review(inputs, rebar_bbs)
-    result["reinforcement_review"] = rebar_review
     drawing_names = ["Box reinforcement section", "Top and bottom slab plans",
                      "Side wall elevations", "Bar mark and shape schedule", "Corner and lap reference details"]
-    drawing_view = st.selectbox("Select reinforcement view",drawing_names, key="stage8_view")
-    _report_messages.append(str("Views update with geometry; the original workbook bar counts and cutting lengths "
-               "DO NOT update automatically when you edit geometry."))
-    drawing_functions = {
-        "Box reinforcement section": "draw_reinforcement_section",
-        "Top and bottom slab plans": "draw_reinforcement_plans",
-        "Side wall elevations": "draw_side_wall_elevation",
-        "Bar mark and shape schedule": "draw_bar_shape_schedule",
-        "Corner and lap reference details": "draw_corner_and_lap_details",
-    }
+    drawing_view = st.selectbox("Select reinforcement view", drawing_names, key="stage8_view")
     try:
         import src.reinforcement_drawings as rd
-        figure = (rd.draw_bar_shape_schedule(rebar_bbs) if drawing_view=="Bar mark and shape schedule"
-                  else getattr(rd,drawing_functions[drawing_view])(inputs,rebar_bbs))
-        drawing_png = figure_png_bytes(figure)
-        plt.close(figure)
+        live_data = rd.live_drawing_data(inputs, result.get('live_bbs'), design_values)
+        figures = rd.live_figures(inputs, live_data)
+        try:
+            drawing_png = figure_png_bytes(figures[drawing_view])
+        finally:
+            for figure in figures.values():
+                plt.close(figure)
         st.image(drawing_png, use_container_width=True,
-                 caption=f"{drawing_view}: schematic reference only, not to scale")
-        st.download_button("Download selected view (PNG)",data=drawing_png,
+                 caption=f"{drawing_view}: schematic review, not to scale")
+        st.download_button("Download selected view (PNG)", data=drawing_png,
                            file_name="reinforcement_"+drawing_view.lower().replace(" ","_")+".png",
-                           mime="image/png",key="stage8_selected_png")
-        pdf_data=make_review_pdf(inputs,rebar_bbs)
-        st.download_button("Download 5-sheet review drawing (PDF)",data=pdf_data,
+                           mime="image/png", key="stage8_selected_png")
+        pdf_data = rd.live_review_pdf(inputs, live_data)
+        st.download_button("Download 5-sheet review drawing (PDF)", data=pdf_data,
                            file_name="culvert_reinforcement_review_5_sheets.pdf",
-                           mime="application/pdf",key="stage8_review_pdf")
-        with tempfile.TemporaryDirectory() as tmp:
-            dxf_file=export_reinforcement_dxf(inputs,rebar_bbs,Path(tmp)/"culvert_reinforcement_review.dxf")
-            dxf_bytes=dxf_file.read_bytes()
-        st.download_button("Download reinforcement reference (DXF)",data=dxf_bytes,
-                           file_name="culvert_reinforcement_reference.dxf",
-                           mime="application/dxf",key="stage8_review_dxf")
+                           mime="application/pdf", key="stage8_review_pdf")
     except Exception as exc:
         st.error(f"Could not generate reinforcement drawing: {exc}")
 
@@ -2562,3 +2553,45 @@ with tab_download:
                            key="live_calculation_design_note_pdf", on_click="ignore")
     except Exception as exc:
         st.error(f"Design Note PDF unavailable: {exc}")
+
+    st.subheader("CAD Drawings (DXF)")
+    gad_dxf = d2_dxf = dxf_bytes = None
+    cad1, cad2, cad3 = st.columns(3)
+    with cad1:
+        try:
+            gad_dxf = export_sheet1_dxf(inputs, gad_inputs)
+            st.download_button("Download Sheet 1 — General Arrangement (DXF)",
+                               data=gad_dxf, file_name="GAD_Sheet1_Review.dxf",
+                               mime="application/dxf", key="gad_sheet1_dxf", on_click="ignore")
+        except Exception as exc:
+            st.error(f"Sheet 1 DXF unavailable: {exc}")
+    with cad2:
+        try:
+            d2_dxf = export_sheet2_dxf(inputs, detailed)
+            st.download_button("Download Sheet 2 — Detailed Sections (DXF)",
+                               data=d2_dxf, file_name="GAD_Sheet2_Review.dxf",
+                               mime="application/dxf", key="sheet2_dxf", on_click="ignore")
+        except Exception as exc:
+            st.error(f"Sheet 2 DXF unavailable: {exc}")
+    with cad3:
+        try:
+            import src.reinforcement_drawings as rd
+            cad_live_data = rd.live_drawing_data(inputs, result.get('live_bbs'), design_values)
+            with tempfile.TemporaryDirectory() as tmp:
+                dxf_file = rd.live_reinforcement_dxf(inputs, cad_live_data, Path(tmp)/"culvert_reinforcement_review.dxf")
+                dxf_bytes = dxf_file.read_bytes()
+            st.download_button("Download Sheet 3 — Reinforcement (DXF)",
+                               data=dxf_bytes, file_name="culvert_reinforcement_reference.dxf",
+                               mime="application/dxf", key="stage8_review_dxf", on_click="ignore")
+        except Exception as exc:
+            st.error(f"Sheet 3 DXF unavailable: {exc}")
+
+    st.subheader("Drawing PDF")
+    try:
+        from src.drawing_pdf import build_drawing_pdf
+        drawing_pdf = build_drawing_pdf(gad_dxf, d2_dxf, dxf_bytes)
+        st.download_button("Download All Drawings (PDF)", data=drawing_pdf,
+                           file_name="RCC_Box_Culvert_Drawings.pdf", mime="application/pdf",
+                           key="combined_live_drawing_pdf", on_click="ignore")
+    except Exception as exc:
+        st.error(f"Drawing PDF unavailable: {exc}")

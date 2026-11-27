@@ -152,7 +152,7 @@ def _section_bb(p, inp, detail):
     p.txt((rx+x+w)/2,y+16,"FLEXIBLE APRON",size=6.4,align="center")
     p.dim_h(xx,xx+ww,yy+hh*.49,f"CLEAR WIDTH {inp.clear_width_m:.3f} m",size=7.7)
     p.dim_v(yy,yy+hh,x+w+34,f"H {inp.clear_height_m:.3f} m",size=7.6)
-    p.txt(x+18,y+h-33,f"HAUNCH {inp.haunch_width_m*1000:.0f}x{inp.haunch_height_m*1000:.0f} mm",size=6.8)
+    p.txt(x+18,y+h-33,(f"HAUNCH {inp.haunch_width_m*1000:.0f}x{inp.haunch_height_m*1000:.0f} mm" if inp.haunch_count else "HAUNCHES OFF"),size=6.8)
     p.txt(x-27,y+h*.35,"WEEP HOLES",size=6.8,align="right")
     p.txt((lx+x)/2,slope_bottom-20,f"1 : {detail.earth_fill_slope_h_to_v:g}",size=7,align="center")
     p.txt((rx+x+w)/2,slope_bottom-20,f"1 : {detail.earth_fill_slope_h_to_v:g}",size=7,align="center")
@@ -162,45 +162,81 @@ def _section_bb(p, inp, detail):
 
 
 def _section_cc(p, inp, detail):
-    x0,y0,x1,y1=76,238,1020,674
-    p.rect(x0,y0,x1-x0,y1-y0,lw=.28,layer="PANELS")
-    p.txt(100,657,"SECTION AT C-C",size=10,bold=True)
-    p.txt(100,642,"EMBANKMENT / GEOTEXTILE / PCC BEDDING",size=7,color=MID)
-    s=min(74,270/(inp.clear_width_m+2*inp.wall_thickness_m),268/(inp.clear_height_m+inp.top_slab_thickness_m+inp.bottom_slab_thickness_m))
-    outw=(inp.clear_width_m+2*inp.wall_thickness_m)*s
-    x=506-outw/2;y=297
-    x,y,w,h,xx,yy,ww,hh=_box(p,inp,x,y,s)
-    p.rect(x-12,y-9,w+24,9,fill=(.83,.86,.86),layer="PCC")
-    p.path([(x-14,y-12),(x+w+14,y-12),(x+w+40,y-25),(x-40,y-25)],fill=(.96,.95,.94),closed=True,layer="FOUNDATION")
-    p.txt(x+w+30,y-8,f"{detail.pcc_bedding_mm} mm PCC M10",size=7)
-    road_y=y+h+11
-    p.line(90,road_y,912,road_y,lw=2,layer="ROAD")
-    p.line(90,road_y-7,912,road_y-7,lw=.5,layer="ROAD")
-    # 1V:2H soil wedges to both sides of box; use panel-specific crop/scale
-    apex_l=(x,road_y-7);left=(x-190,y+10)
-    apex_r=(x+w,road_y-7);right=(x+w+190,y+10)
-    polyl=[(x-238,road_y-7),apex_l,(x,y+9),left]
-    polyr=[apex_r,(x+w+238,road_y-7),right,(x+w,y+9)]
-    _polygon(p,polyl,fill=SOIL,layer="FILL",lw=.6,hatch=True)
-    _polygon(p,polyr,fill=SOIL,layer="FILL",lw=.6,hatch=True)
-    p.line(left[0],left[1],apex_l[0],apex_l[1],lw=1.1,layer="GEOTEXTILE")
-    p.line(apex_r[0],apex_r[1],right[0],right[1],lw=1.1,layer="GEOTEXTILE")
-    p.txt(146,460,f"GEO TEXTILE {detail.geo_textile_gsm} GSM",size=7)
-    p.txt(146,449,"NON-WOVEN FABRIC",size=6.5)
-    p.txt(853,460,f"GEO TEXTILE {detail.geo_textile_gsm} GSM",size=7,align="right")
-    p.txt(853,449,"NON-WOVEN FABRIC",size=6.5,align="right")
-    p.txt(140,390,"SELECTED SOIL BACKFILL",size=6.5)
-    p.txt(140,377,"(REFERENCE)",size=6.5)
-    p.txt(862,390,"SELECTED SOIL BACKFILL",size=6.5,align="right")
-    p.txt(862,377,"(REFERENCE)",size=6.5,align="right")
-    p.txt(506,road_y+14,"FRL / PAVEMENT AS PER TCS",size=7,align="center")
-    p.line(114,y+76,889,y+76,lw=.4,color=MID,layer="GROUND_LEVEL",dash=(8,6))
-    p.txt(111,y+82,"G.L.",size=7,align="right")
-    p.txt(111,y+66,"I.L.",size=7,align="right")
-    p.dim_h(xx,xx+ww,y+hh*.5,f"B {inp.clear_width_m:.3f} m",size=7.6)
-    p.dim_v(yy,yy+hh,x+w+24,f"H {inp.clear_height_m:.3f} m",size=7.6)
-    p.txt(x+21,yy+18,f"HAUNCH {inp.haunch_width_m*1000:.0f}x{inp.haunch_height_m*1000:.0f} mm",size=6.6)
-    p.txt((x0+x1)/2,y0+13,"SECTION C-C | EMBANKMENT / GEOTEXTILE ARRANGEMENT BASED ON SOURCE PDF",size=7,align="center",color=MID)
+    """Reference-style C-C section; site levels and soil profiles are schematic."""
+    p.rect(76,238,944,436,lw=.28,layer='PANELS')
+    p.txt(548,253,'SECTION AT C-C',size=10,bold=True,align='center')
+    p.txt(548,242,'REVIEW SECTION - SITE LEVELS REQUIRE VERIFICATION',size=6.5,align='center')
+    W=inp.clear_width_m+2*inp.wall_thickness_m
+    H=inp.clear_height_m+inp.top_slab_thickness_m+inp.bottom_slab_thickness_m
+    # Use the existing slope input; do not silently substitute a reference angle.
+    slope=detail.earth_fill_slope_h_to_v
+    s=min(260/H, 800/(W+2*slope*H))
+    x=548-W*s/2; y=325; w=W*s; h=H*s
+    top=y+h; run=slope*h; xl=x-run; xr=x+w+run
+    # Triangular backfill outside the walls, widening upwards.
+    left=[(xl,top),(x,top),(x,y)]
+    right=[(x+w,y),(x+w,top),(xr,top)]
+    for poly in (left,right):
+        _polygon(p,poly,fill=SOIL,layer='FILL',lw=.7)
+        # Interlocking short diagonal strokes, clipped to the triangle.
+        def inside(px,py):
+            if not y+1<=py<=top-1: return False
+            edge=slope*(py-y)
+            return x-edge+1<=px<=x-1 if poly is left else x+w+1<=px<=x+w+edge-1
+        for j,yy in enumerate(range(int(y)+4,int(top),13)):
+            for i,xx in enumerate(range(int(min(a for a,b in poly))+3,int(max(a for a,b in poly)),13)):
+                sign=1 if (i+j)%2==0 else -1
+                for offset in (0,3):
+                    a=(xx,yy+offset); b=(xx+7,yy+offset+sign*7)
+                    if inside(*a) and inside(*b): p.line(*a,*b,lw=.32,layer='FILL_HATCH')
+    # Draw the actual box, including live haunch corners.
+    p.rect(x,y,w,h,lw=1.3,layer='RCC_BOX')
+    sw=inp.wall_thickness_m*s; bs=inp.bottom_slab_thickness_m*s; ts=inp.top_slab_thickness_m*s
+    xx=x+sw; yy=y+bs; cw=inp.clear_width_m*s; ch=inp.clear_height_m*s
+    a=inp.haunch_width_m*s if inp.haunch_count else 0
+    b=inp.haunch_height_m*s if inp.haunch_count else 0
+    _hole(p,xx,yy,cw,ch,a,b)
+    # Pavement is schematic; wearing-coat thickness is input-linked.
+    coat=inp.wearing_coat_thickness_m*s
+    p.rect(xl-12,top,xr-xl+24,max(coat,0.6),lw=.8,layer='ROAD')
+    p.line(xl-12,top+coat+5,xr+12,top+coat+5,lw=1.2,layer='ROAD')
+    p.txt(548,top+coat+12,'FRL / PAVEMENT AS PER TCS',size=7,align='center')
+    p.path([(x-9,y),(x-9,top),(x-4,top)],lw=.7,layer='GEOTEXTILE',dash=(4,3))
+    p.path([(x+w+9,y),(x+w+9,top),(x+w+4,top)],lw=.7,layer='GEOTEXTILE',dash=(4,3))
+    # Weep-hole symbols only; actual bore, gradient and locations not supplied.
+    for side,sgn in ((x,1),(x+w,-1)):
+        for q in (.32,.68):
+            cy=y+h*q
+            p.line(side,cy,side+sgn*sw,cy-2,lw=.65,layer='WEEP_HOLES')
+    p.txt(xx+8,yy+ch*.69,'WEEP HOLES (TYP.)',size=6.4)
+    p.line(xx+6,yy+ch*.67,x+sw,y+h*.68-2,lw=.4,layer='TEXT')
+    # PCC bedding thickness is drawn at the same scale as the box.
+    pc=detail.pcc_bedding_mm*s/1000
+    p.rect(x-4,y-pc,w+8,pc,lw=.8,layer='PCC')
+    p.rect(x-6,y-pc-10,w+12,10,lw=.4,layer='FOUNDATION')
+    for i in range(int(x-5),int(x+w+3),6):
+        p.line(i,y-pc-10,min(i+7,x+w+6),y-pc-3,lw=.3,layer='FILL_HATCH')
+    p.txt(x+w+14,y-pc-8,f'{detail.pcc_bedding_mm} mm PCC (M10)',size=6.5)
+    p.txt(548,y-pc-23,'COMPACTED SOIL (REFERENCE)',size=6.5,align='center')
+    # Level symbols are indicative; no numerical site elevation inferred.
+    for lab,px,py in [('G.L.',xl+10,y+30),('I.L.',xl+10,y+10)]:
+        p.line(px,py,px+42,py,lw=.5,layer='LEVELS',dash=(5,3))
+        p.path([(px+8,py),(px+4,py+6),(px+12,py+6)],closed=True,layer='LEVELS')
+        p.txt(px+15,py+3,lab,size=6.5)
+    p.dim_h(xx,xx+cw,yy+ch*.48,f'B = {inp.clear_width_m*1000:g}',size=7)
+    p.dim_v(yy,yy+ch,xx+cw*.70,f'H = {inp.clear_height_m*1000:g}',size=7)
+    p.dim_v(top-ts,top,x+w+20,f'TS {inp.top_slab_thickness_m*1000:g}',size=6.2)
+    p.dim_v(y,y+bs,x+w+20,f'BS {inp.bottom_slab_thickness_m*1000:g}',size=6.2)
+    p.dim_h(x,xx,y+h*.82,f'SW {inp.wall_thickness_m*1000:g}',size=6.0)
+    if inp.haunch_count:
+        p.txt(xx+8,yy+ch*.18,f'HAUNCH {inp.haunch_width_m*1000:g} x {inp.haunch_height_m*1000:g}',size=6.2)
+        p.line(xx+8,yy+ch*.15,xx+a/2,yy+b/2,lw=.45,layer='TEXT')
+    for px,align in ((xl+12,'left'),(xr-12,'right')):
+        p.txt(px,top+25,f'GEO TEXTILE {detail.geo_textile_gsm} GSM / NON-WOVEN',size=6.2,align=align)
+    p.txt(xl+5,top-45,'SELECTED SOIL BACKFILL',size=6.4)
+    p.txt(xr-5,top-45,'SELECTED SOIL BACKFILL',size=6.4,align='right')
+    p.txt(xl+5,top-58,f'SLOPE {slope:g}H : 1V',size=6.4)
+    p.txt(xr-5,top-58,f'SLOPE {slope:g}H : 1V',size=6.4,align='right')
 
 
 def _type_i(p,d):
@@ -419,3 +455,174 @@ def write_sheet2_files(inputs:CulvertInputs,output_dir:str|Path,detail:Sheet2Inp
     artifacts["png"].write_bytes(sheet2_preview_png(inputs,detail))
     artifacts["dxf"].write_bytes(export_sheet2_dxf(inputs,detail))
     return artifacts
+
+# Native full-size CAD exporter. Existing PDF/PNG API remains unchanged.
+def export_sheet2_dxf(inputs: CulvertInputs, detail: Sheet2Inputs | None = None) -> bytes:
+    """Generate measured model geometry and an A2 review layout, no raster underlays."""
+    import ezdxf
+    from ezdxf.enums import TextEntityAlignment
+    from ezdxf import bbox
+    from io import StringIO
+    d=detail or Sheet2Inputs(); d.validate(); inputs.validate()
+    if not inputs.supports_single_cell_model:
+        raise ValueError('Only single-cell geometry is supported')
+    W,H,w,t,b=[1000*getattr(inputs,k) for k in ('clear_width_m','clear_height_m','wall_thickness_m','top_slab_thickness_m','bottom_slab_thickness_m')]
+    X=W+2*w; Y=H+t+b; pcc=d.pcc_bedding_mm
+    hw=1000*inputs.haunch_width_m if inputs.haunch_count else 0
+    hh=1000*inputs.haunch_height_m if inputs.haunch_count else 0
+    if 2*hw>=W or 2*hh>=H: raise ValueError('Haunches overlap')
+    doc=ezdxf.new('R2010'); doc.units=4
+    for n,c in [('CONCRETE',7),('PCC',8),('DIMENSIONS',2),('ANNOTATION',7),('SITE_REFERENCE',8),('GEOTEXTILE',3),('HATCH',8),('SHEET',7)]:
+        doc.layers.new(n,dxfattribs={'color':c})
+    m=doc.modelspace(); panels=[]
+    def poly(p,pts,layer='CONCRETE',closed=True): return p.add_lwpolyline(pts,close=closed,dxfattribs={'layer':layer})
+    def rect(p,x,y,a,z,layer='CONCRETE'): return poly(p,[(x,y),(x+a,y),(x+a,y+z),(x,y+z)],layer)
+    def line(p,a,z,layer='ANNOTATION'): return p.add_line(a,z,dxfattribs={'layer':layer})
+    def txt(p,x,y,s,h=100,center=False,layer='ANNOTATION'):
+        e=p.add_text(str(s),dxfattribs={'height':h,'layer':layer}); e.set_placement((x,y),align=TextEntityAlignment.MIDDLE_CENTER if center else TextEntityAlignment.LEFT); return e
+    def dim(a,z,base,angle=0):
+        q=m.add_linear_dim(base=base,p1=a,p2=z,angle=angle,dimstyle='Standard',override={'dimtxt':100,'dimasz':65,'dimdec':0},dxfattribs={'layer':'DIMENSIONS'});q.render()
+    def hatch(pts):
+        h=m.add_hatch(dxfattribs={'layer':'HATCH'});h.set_pattern_fill('ANSI31',scale=20);h.paths.add_polyline_path(pts,is_closed=True)
+    def panel(start,center,size,title):
+        entities=list(m)[start:]; ext=bbox.extents(entities); panels.append((ext,center,size,title))
+    def box(x,y):
+        rect(m,x,y,X,Y); a=x+w; c=y+b
+        poly(m,[(a+hw,c),(a+W-hw,c),(a+W,c+hh),(a+W,c+H-hh),(a+W-hw,c+H),(a+hw,c+H),(a,c+H-hh),(a,c+hh)] if hw and hh else [(a,c),(a+W,c),(a+W,c+H),(a,c+H)])
+        rect(m,x,y-pcc,X,pcc,'PCC')
+        dim((a,c+H/2),(a+W,c+H/2),(a,c+H/2))
+        dim((a+W*.65,c),(a+W*.65,c+H),(a+W*.65,c),90)
+        dim((x,y),(x+X,y),(x,y-pcc-300))
+        dim((x,y),(x,y+Y),(x-400,y),90)
+        txt(m,x+X/2,y+Y+220,f'TS {t:g} / BS {b:g} / SW {w:g} mm',110,True)
+        txt(m,x+X/2,y-pcc-600,f'{pcc:g} mm PCC (M10)',95,True)
+        if hw and hh: txt(m,a+180,c+H-400,f'HAUNCH {hw:g} x {hh:g}',85)
+    # Independent views at non-overlapping model coordinates; sheet via viewports.
+    gap=max(X,Y,8000)*2.5
+    start=len(m); box(0,0)
+    txt(m,X/2,Y+650,'SECTION B-B - BOX CORE',150,True)
+    txt(m,X/2,-1100,'Wing-wall, railing and curtain set-out pending',100,True)
+    panel(start,(174,308),(310,155),'SECTION B-B')
+    start=len(m); x=X+max(2500,d.earth_fill_slope_h_to_v*(Y+inputs.earth_cushion_m*1000)+1800); box(x,0)
+    fill=inputs.earth_cushion_m*1000; wear=inputs.wearing_coat_thickness_m*1000; run=d.earth_fill_slope_h_to_v*(Y+fill)
+    for side in (-1,1):
+        e=x if side<0 else x+X
+        pts=[(e,0),(e,Y+fill),(e+side*run,Y+fill)]
+        poly(m,pts,'SITE_REFERENCE');hatch(pts);line(m,(e,0),(e,Y),'GEOTEXTILE')
+    if wear>0: rect(m,x-run,Y+fill,X+2*run,wear,'SITE_REFERENCE')
+    txt(m,x+X/2,Y+fill+wear+350,'PAVEMENT / FRL - SITE LEVEL PENDING',120,True)
+    txt(m,x-run*.65,Y*.6,f'GEOTEXTILE {d.geo_textile_gsm:g} GSM',100,True)
+    txt(m,x+X+run*.6,Y*.6,'SELECTED BACKFILL',100,True)
+    txt(m,x+X/2,-1050,f'Fill slope 1V:{d.earth_fill_slope_h_to_v:g}H - review assumption',100,True)
+    panel(start,(174,144),(310,145),'SECTION C-C')
+    # Source profiles: step heights and widths from PDF sheet 2. Only the
+    # original dimensions are supported; changed totals need an approved profile.
+    def curtain(x, widths, heights, base,pccw,total,title,ref):
+        start=len(m)
+        if abs(total-sum(heights))>1e-6 or base!=widths[0] or pccw!=ref:
+            txt(m,x,0,'Changed curtain dimensions: approved stepped profile required',110)
+        else:
+            y=0; right=[]
+            for width,height in zip(widths,heights):
+                right.extend([(x+width/2,y),(x+width/2,y+height)]);y+=height
+            pts=right+[(2*x-a,z) for a,z in reversed(right)]
+            poly(m,pts);rect(m,x-pccw/2,-pcc,pccw,pcc,'PCC')
+            dim((x-base/2,0),(x+base/2,0),(x,-350))
+            dim((x-pccw/2,-pcc),(x+pccw/2,-pcc),(x,-650))
+            dim((x+base/2,0),(x+base/2,total),(x+base/2+300,0),90)
+            for i,width in enumerate(widths): txt(m,x,sum(heights[:i])+heights[i]/2,f'{width:g}',95,True)
+            txt(m,x,total+300,'PCC (M15) - SOURCE PROFILE',100,True)
+            txt(m,x,-950,'Foundation design / set-out pending',90,True)
+        return start
+    start=curtain(-6500,[1650,750,450,200],[550,750,750,450],d.curtain_i_base_mm,d.curtain_i_pcc_width_mm,d.curtain_i_height_mm,'I',1850)
+    panel(start,(407,319),(132,133),'CURTAIN WALL TYPE I (D/S)')
+    start=curtain(-10500,[1300,450,200],[800,750,450],d.curtain_ii_base_mm,d.curtain_ii_pcc_width_mm,d.curtain_ii_height_mm,'II',1500)
+    panel(start,(541,319),(96,133),'CURTAIN WALL TYPE II (U/S)')
+    # Key and wing wall geometry cannot be established from box inputs alone.
+    # Keep their reference positions on the sheet but do not invent dimensions.
+    sheet=doc.layouts.new('DETAILS A2');sheet.page_setup(size=(594,420),margins=(0,0,0,0),units='mm')
+    rect(sheet,8,8,578,404,'SHEET')
+    for ext,center,size,title in panels:
+        if not ext.has_data: continue
+        cx,cy=center; sw,sh=size; ex=ext.size; mid=ext.center
+        vh=max(ex.y,ex.x*sh/sw,1)*1.12
+        sheet.add_viewport(center=center,size=size,view_center_point=(mid.x,mid.y),view_height=vh,dxfattribs={'layer':'SHEET','flags':16384})
+        txt(sheet,cx,cy-sh/2-4,title,2.8,True)
+    txt(sheet,342,235,'SHEAR KEY DETAIL X',3.2)
+    txt(sheet,342,226,f'Gap: {d.shear_key_gap_mm:g} mm; toe: {d.shear_key_toe_mm:g} mm',2.6)
+    txt(sheet,342,218,'DK and verified profile required.',2.6)
+    txt(sheet,342,190,'U-TYPE WING WALL',3.2)
+    txt(sheet,342,181,'Separate wing-wall design required.',2.6)
+    txt(sheet,342,173,'Width, height and foundation not inferred.',2.6)
+    txt(sheet,342,135,'NOTES',3.2)
+    for i,s in enumerate(['All model dimensions in mm.','Box geometry from live design inputs.','Curtain profiles: reference geometry only.','Site levels / tie-ins require verification.','Engineering review - not for construction.']): txt(sheet,342,126-i*7,s,2.6)
+    rect(sheet,8,8,578,44,'SHEET');line(sheet,(400,8),(400,52),'SHEET')
+    txt(sheet,14,37,'GENERAL ARRANGEMENT - DETAILED SECTIONS',4)
+    txt(sheet,14,24,f'CH. {d.chainage} | SHEET 2 OF 3 | A2 | ENGINEERING REVIEW',3)
+    txt(sheet,405,37,'MODEL: 1:1 mm',3);txt(sheet,405,24,'Approval: pending',3)
+    ext=bbox.extents(m);doc.set_modelspace_vport(height=max(ext.size.y,ext.size.x/1.8)*1.15,center=(ext.center.x,ext.center.y))
+    _restore_detailed_paper_layout(doc, inputs, d)
+    out=StringIO();doc.write(out);return out.getvalue().encode('utf-8')
+
+
+def _restore_detailed_paper_layout(doc, inputs, detail):
+    """Regenerate the earlier detailed sheet as native paper-space linework.
+
+    This is a diagrammatic layout, separate from the measured model views.
+    Site shapes are not certified full-size geometry. No image is embedded.
+    """
+    from ezdxf.enums import TextEntityAlignment
+    class SheetPen(_Pen):
+        def __init__(self):
+            super().__init__(None, record=True)
+        def txt(self,x,y,text,size=8,bold=False,align="left",color=(.15,.19,.23),angle=0,layer="TEXT"):
+            self.items.append(("text_aligned",layer,(x,y,str(text),size,angle,align)))
+    pen=SheetPen()
+    _draw(pen,inputs,detail)
+    layout=doc.layouts.new('DETAILED A2')
+    layout.page_setup(size=(594,420),margins=(0,0,0,0),units='mm')
+    f=_PAPER_TO_MM
+    # No model viewport in this layout: it is an independently regenerated
+    # paper-space schematic, not a measured projection of the model.
+    for v in list(layout.query('VIEWPORT')):
+        if v.dxf.id != 1: layout.delete_entity(v)
+    for kind,layer,args in pen.items:
+        name='PAPER_'+layer
+        if name not in doc.layers:
+            doc.layers.new(name,dxfattribs={'color':3 if layer=='GEOTEXTILE' else 7 if layer!='DIMENSIONS' else 2})
+        attr={'layer':name}
+        if kind=='line':
+            x,y,u,v=args;layout.add_line((x*f,y*f),(u*f,v*f),dxfattribs=attr)
+        elif kind=='path':
+            pts,closed=args;layout.add_lwpolyline([(x*f,y*f) for x,y in pts],close=closed,dxfattribs=attr)
+        elif kind=='circle':
+            x,y,r=args;layout.add_circle((x*f,y*f),r*f,dxfattribs=attr)
+        elif kind=='text_aligned':
+            x,y,t,size,angle,align=args
+            e=layout.add_text(t,dxfattribs={**attr,'height':size*f,'rotation':angle})
+            e.set_placement((x*f,y*f),align={'left':TextEntityAlignment.LEFT,'center':TextEntityAlignment.CENTER,'right':TextEntityAlignment.RIGHT}[align])
+    layout.add_text('PAPER-SCALE REVIEW SHEET - USE SEPARATE FULL-SIZE DXF FOR MEASUREMENTS',dxfattribs={'height':2.6,'insert':(26,3),'layer':'PAPER_TEXT'})
+    doc.layouts.set_active_layout(layout.name)
+
+
+# Default download is the detailed sheet in Model Space for viewers that hide
+# named layouts. The full-size geometry remains available as a separate export.
+export_sheet2_measured_dxf = export_sheet2_dxf
+
+def export_sheet2_dxf(inputs: CulvertInputs, detail: Sheet2Inputs | None = None) -> bytes:
+    import ezdxf
+    from ezdxf import bbox
+    detail = detail or Sheet2Inputs()
+    doc = ezdxf.new("R2010")
+    doc.header["$INSUNITS"] = 4
+    _restore_detailed_paper_layout(doc, inputs, detail)
+    layout = doc.layouts.get("DETAILED A2")
+    model = doc.modelspace()
+    for entity in layout:
+        if entity.dxftype() != "VIEWPORT":
+            model.add_entity(entity.copy())
+    ext = bbox.extents(model)
+    doc.set_modelspace_vport(height=max(ext.size.y, ext.size.x / 1.35)*1.10, center=(ext.center.x,ext.center.y))
+    out = StringIO()
+    doc.write(out)
+    return out.getvalue().encode("utf-8")

@@ -17,6 +17,7 @@ import math
 from pathlib import Path
 
 from reportlab.lib.colors import Color
+from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas
 from .inputs import CulvertInputs
 
@@ -133,7 +134,12 @@ class _Pen:
             elif align=="right": self.c.drawRightString(0,0,text)
             else: self.c.drawString(0,0,text)
             self.c.restoreState()
-        if self.record: self.items.append(("text",layer,(x,y,text,size,angle)))
+        if self.record:
+            # Preserve PDF text alignment in both existing DXF exporters.
+            width = stringWidth(text, "Helvetica-Bold" if bold else "Helvetica", size)
+            shift = width / 2 if align == "center" else width if align == "right" else 0
+            a = math.radians(angle)
+            self.items.append(("text",layer,(x-shift*math.cos(a),y-shift*math.sin(a),text,size,angle)))
 
     def arrow(self,x1,y1,x2,y2, size=5, lw=.6,layer="DIMENSIONS"):
         self.line(x1,y1,x2,y2,lw=lw,layer=layer)
@@ -183,68 +189,44 @@ def _sheet_border(p, gad):
 
 
 def _section_aa(p, inp, gad):
-    # section left part mirrors original document's longitudinal elevation layout
-    x0,y0,x1,y1 = 75,862,1154,1105
+    """Longitudinal box envelope in consistent fitted scale; site levels are independent."""
+    x0,y0,x1,y1=75,862,1154,1105
     p.rect(x0,y0,x1-x0,y1-y0,lw=.28,layer="PANELS")
-    p.txt((x0+x1)/2,865,"SECTION AT A-A",size=9.2,bold=True,align="center")
-    p.txt(x0+10,y0+9,"LONGITUDINAL ELEVATION (REFERENCE RECONSTRUCTION)",size=6.3)
-    s=min(PT_PER_M_AT_75, 530/max(inp.length_m,1))
-    xa=390; xb=xa+s*inp.length_m
-    yc=933; top=yc+24; bottom=yc-38
-    # apron and gl line
-    l_apron = max(65,min(230,s*gad.left_apron_m)); r_apron = max(65,min(160,s*gad.right_apron_m))
-    p.line(120,yc-12,1038,yc-12,lw=.9,layer="TERRAIN")
-    # stone apron outside structure
-    p.rect(xa-l_apron,yc-12,l_apron,15,fill=(.95,.96,.96),lw=.7,layer="APRONS")
-    p.rect(xb,yc-12,r_apron,15,fill=(.95,.96,.96),lw=.7,layer="APRONS")
-    _stone_fill(p,xa-l_apron+5,yc-9,xa-5,yc+1,stride=15)
-    _stone_fill(p,xb+5,yc-9,xb+r_apron-5,yc+1,stride=15)
-    # floor PCC/bottom; top deck and void shown lengthwise
-    p.rect(xa,bottom,xb-xa,7,fill=(.88,.88,.88),lw=.9,layer="STRUCTURE")
-    p.rect(xa,bottom-7,xb-xa,5,fill=(.94,.94,.94),lw=.45,layer="PCC")
-    p.rect(xa,top,xb-xa,9,fill=(.81,.84,.86),lw=1,layer="STRUCTURE")
-    p.rect(xa,yc-32,6,(top-yc+32),fill=(.85,.85,.85),lw=.8,layer="STRUCTURE")
-    p.rect(xb-6,yc-32,6,(top-yc+32),fill=(.85,.85,.85),lw=.8,layer="STRUCTURE")
-    # side elevation haunch indication
-    for x,sgn in ((xa,1),(xb,-1)):
-        p.path([(x+sgn*6,top),(x+sgn*14,top),(x+sgn*6,top-8)],lw=.5,closed=True,fill=(.68,.72,.75),layer="STRUCTURE")
-    # bedding and embankment side slopes
-    p.path([(xa-125,yc-10),(xa-112,yc+13),(xa-35,top+3),(xa,top+8)],lw=.7,layer="EMBANKMENT")
-    p.path([(xb,top+8),(xb+33,top+3),(xb+102,yc+12),(xb+115,yc-10)],lw=.7,layer="EMBANKMENT")
-    # two lanes crowned center and wearing/earth cushion
-    mid=(xa+xb)/2
-    p.path([(xa,top+15),(mid,top+24),(xb,top+15)],lw=1.2,layer="ROAD")
-    p.path([(xa,top+12),(mid,top+20),(xb,top+12)],lw=.7,layer="ROAD")
-    # railing pedestals
-    for xx in (xa+11,xb-11):
-        p.rect(xx-6,top+11,12,33,lw=.75,fill=(.90,.90,.90),layer="RAILING")
-        p.line(xx-7,top+47,xx+7,top+47,lw=1.1,layer="RAILING")
-        p.txt(xx,top+52,"MS",size=6.8,align="center")
-        p.txt(xx,top+59,"RAILING",size=6.0,align="center")
-    # curtain walls / foundation pads at both ends of approaches
-    for xx,label in [(xa-108,"CURTAIN WALL-I"),(xb+96,"CURTAIN WALL-II")]:
-        p.rect(xx-6,yc-33,12,36,lw=.6,fill=(.88,.88,.88),layer="FOUNDATION")
-        p.rect(xx-24,yc-42,48,9,lw=.6,fill=(.86,.86,.86),layer="FOUNDATION")
-        p.txt(xx,yc-53,label,size=6.6,align="center")
-    # ground, invert and road reference labels
-    for x, label in [(xa+20,f"FRL1 {gad.frl1_m:.3f}"),(mid,f"FRL2 {gad.frl2_m:.3f}"),(xb-20,f"FRL3 {gad.frl3_m:.3f}")]:
-        p.txt(x,top+36,label,size=7.7,align="center",bold=True)
-    p.txt(145,yc+3,"G.L.",size=8,bold=True)
-    p.txt(xb+r_apron+20,yc+3,"G.L.",size=8,bold=True)
-    p.txt(xa+10,bottom+14,f"IL-1  {gad.invert_level_left_m:.3f}",size=6.8)
-    p.txt(xb-10,bottom+14,f"IL-2  {gad.invert_level_right_m:.3f}",size=6.8,align="right")
-    p.txt(mid,top-1,(f"HAUNCH {inp.haunch_width_m*1000:.0f}x{inp.haunch_height_m*1000:.0f} mm (TYP.)"
-                           if inp.haunch_count else "HAUNCHES OFF"),size=7,align="center")
-    p.txt(xa+22,bottom-17,f"{gad.pcc_bedding_mm} mm PCC BEDDING (REF.)",size=6.2)
-    p.txt(xa-62,yc+14,"D/S",size=7,bold=True,align="center")
-    p.txt(xb+65,yc+14,"U/S",size=7,bold=True,align="center")
-    # dimensions across the top
-    p.dim_h(xa,xb,1092,f"OVERALL BOX LENGTH L = {inp.length_m:.3f} m",source_y=top+10,size=7.7)
-    p.dim_h(xa-l_apron,xa,1065,f"{gad.left_apron_m:.1f} m APRON",source_y=yc+3,size=6.8)
-    p.dim_h(xb,xb+r_apron,1065,f"{gad.right_apron_m:.1f} m APRON",source_y=yc+3,size=6.8)
-    p.dim_h(xa+gad.railing_pedestal_width_m*s,mid,1049,"L1",size=7.0)
-    p.dim_h(mid,xb-gad.railing_pedestal_width_m*s,1049,"L2",size=7.0)
-    p.txt(mid+78,top+12,f"CAMBER {gad.road_camper_left_percent:+.1f}% / {gad.road_camper_right_percent:+.1f}%",size=6.6)
+    h=inp.clear_height_m; t=inp.top_slab_thickness_m; b=inp.bottom_slab_thickness_m
+    L=inp.length_m; il1=gad.invert_level_left_m; il2=gad.invert_level_right_m
+    lo=min(il1,il2,gad.ground_level_m)-b-gad.pcc_bedding_mm/1000
+    hi=max(il1+h+t,il2+h+t,gad.frl1_m,gad.frl2_m,gad.frl3_m,gad.ground_level_m,il1+gad.wingwall_left_height_m,il2+gad.wingwall_right_height_m)
+    # Fit the complete length and vertical envelope, never clamp a physical dimension.
+    scale=min(PT_PER_M_AT_75, 920/(L+gad.left_apron_m+gad.right_apron_m+gad.wingwall_left_length_m+gad.wingwall_right_length_m), 118/max(hi-lo,.01))
+    xa=125+(gad.left_apron_m+gad.wingwall_left_length_m)*scale; xb=xa+L*scale; mid=(xa+xb)/2
+    def y(level): return 903+(level-lo)*scale
+    def strip(low,high,layer,fill):
+        p.path([(xa,y(il1+low)),(xb,y(il2+low)),(xb,y(il2+high)),(xa,y(il1+high))],closed=True,fill=fill,layer=layer)
+    strip(-b,0,"STRUCTURE",(.88,.88,.88));strip(h,h+t,"STRUCTURE",(.82,.85,.87))
+    strip(-b-gad.pcc_bedding_mm/1000,-b,"PCC",(.95,.95,.95))
+    p.line(xa,y(il1),xb,y(il2),layer="STRUCTURE")
+    p.line(xa,y(il1+h),xb,y(il2+h),layer="STRUCTURE")
+    p.path([(xa,y(gad.frl1_m)),(mid,y(gad.frl2_m)),(xb,y(gad.frl3_m))],lw=1.2,layer="ROAD")
+    p.line(xa-(gad.left_apron_m+gad.wingwall_left_length_m)*scale,y(gad.ground_level_m),xb+(gad.right_apron_m+gad.wingwall_right_length_m)*scale,y(gad.ground_level_m),dash=(5,3),layer="TERRAIN")
+    for x,il,sgn,length,wl,wh,name in [(xa,il1,-1,gad.left_apron_m,gad.wingwall_left_length_m,gad.wingwall_left_height_m,"D/S"),(xb,il2,1,gad.right_apron_m,gad.wingwall_right_length_m,gad.wingwall_right_height_m,"U/S")]:
+        wing_end=x+sgn*wl*scale
+        end=wing_end+sgn*length*scale
+        # Wing outline is diagrammatic: length and height are independent site inputs.
+        p.path([(x,y(il)),(wing_end,y(il)),(wing_end,y(il+wh*.25)),(x,y(il+wh))],closed=True,layer="WING_WALLS",lw=.7)
+        p.line(wing_end,y(il),end,y(il),layer="APRONS")
+        p.txt((wing_end+end)/2,y(il)-9,name+" APRON",size=6,align="center")
+        p.dim_h(min(wing_end,end),max(wing_end,end),1047,f"{length:g} m",size=6.5)
+        p.dim_h(min(x,wing_end),max(x,wing_end),1047,f"WL {wl:.3f}",size=6.5)
+        p.txt((x+wing_end)/2,y(il)+18,"WING WALL (REF.)",size=6,align="center")
+    p.dim_h(xa,xb,1080,f"BOX LENGTH {L:.3f} m",size=8)
+    p.dim_v(y(il1),y(il1+h),xa+12,f"H {h:.3f} m",size=7)
+    p.txt(xa+22,y(il1+h/2),f"TOP {t*1000:g} / BOTTOM {b*1000:g} mm",size=7)
+    p.txt(xa,1028,f"FRL1 {gad.frl1_m:.3f}",size=7);p.txt(mid,1028,f"FRL2 {gad.frl2_m:.3f}",size=7,align="center");p.txt(xb,1028,f"FRL3 {gad.frl3_m:.3f}",size=7,align="right")
+    p.txt(xa,890,f"IL1 {il1:.3f}",size=7);p.txt(xb,890,f"IL2 {il2:.3f}",size=7,align="right")
+    p.txt((x0+x1)/2,873,"SECTION A-A | BOX ENVELOPE AND INDEPENDENT SITE LEVELS | REVIEW",size=8,align="center",bold=True)
+    # Do not silently reconcile independent survey levels with changed box geometry.
+    if min(gad.frl1_m-(il1+h+t),gad.frl3_m-(il2+h+t),gad.frl2_m-((il1+il2)/2+h+t))<0:
+        p.txt(x0+12,1100,"REVIEW: ROAD LEVEL BELOW BOX TOP",size=7,color=(.65,.15,.14))
 
 
 def _plan(p, inp, gad):
@@ -457,7 +439,7 @@ def _table_and_title(p,inp,gad):
     p.txt(stops[-2]+9,yt-49,f"BOX CULVERT AT CH {gad.chainage}",size=8)
     p.txt(stops[-2]+9,yt-66,gad.issue_note,size=6.7,color=(.64,.17,.13))
     p.txt(stops[-2]+9,yt-82,"SHEET 1 OF 3",size=8,bold=True)
-    p.txt(stops[-2]+9,yt-96,"A2 LANDSCAPE / CORE ~1:75",size=7.2)
+    p.txt(stops[-2]+9,yt-96,"A2 LANDSCAPE / FITTED SCALE",size=7.2)
     p.txt(stops[-2]+9,yb+15,"NO ORIGINAL APPROVAL OR SIGNATURES",size=6.9)
 
 
@@ -533,6 +515,7 @@ def export_sheet1_dxf(inputs: CulvertInputs, gad: GADInputs | None = None) -> by
     # ezdxf write is text stream; save into a UTF-8 byte buffer for downloads.
     import io
     output=io.StringIO()
+    doc.set_modelspace_vport(height=PAGE_H*f*1.08, center=(PAGE_W*f/2,PAGE_H*f/2))
     doc.write(output)
     return output.getvalue().encode('utf-8')
 
@@ -546,5 +529,162 @@ def write_sheet1_files(inputs: CulvertInputs, output_dir: str | Path,
     png=directory/'GAD_Sheet1_Review.png'
     pdf.write_bytes(make_sheet1_pdf(inputs,gad))
     png.write_bytes(sheet1_preview_png(inputs,gad))
+    dxf=directory/'GAD_Sheet1_Review.dxf'
     dxf.write_bytes(export_sheet1_dxf(inputs,gad))
-    return {'pdf':pdf,'png':png}
+    return {'pdf':pdf,'png':png,'dxf':dxf}
+
+
+# Native model-space GAD export. The existing PDF/PNG renderer is retained.
+def export_sheet1_dxf(inputs: CulvertInputs, gad: GADInputs | None = None) -> bytes:
+    """1:1 millimetre geometry; A2 paper viewports. Site outlines are review-only."""
+    import ezdxf
+    from ezdxf.enums import TextEntityAlignment
+    from io import StringIO
+    inputs.validate()
+    gad = (gad or GADInputs()).validate()
+    if inputs.number_of_cells != 1:
+        raise ValueError('Only single-cell GAD is supported')
+    L,B,H,t,b,w = (1000*float(v) for v in (inputs.length_m,inputs.clear_width_m,inputs.clear_height_m,inputs.top_slab_thickness_m,inputs.bottom_slab_thickness_m,inputs.wall_thickness_m))
+    W=B+2*w
+    a,c,u,v,bl,br = (1000*float(q) for q in (gad.left_apron_m,gad.right_apron_m,gad.wingwall_left_length_m,gad.wingwall_right_length_m,gad.wingwall_left_breadth_m,gad.wingwall_right_breadth_m))
+    doc=ezdxf.new('R2010'); doc.units=4
+    m=doc.modelspace()
+    for name,col in [('BOX',7),('SITE_REFERENCE',8),('DIMENSIONS',2),('ANNOTATION',7),('CENTERLINE',4),('PCC',8),('SHEET',7),('APRON_HATCH',8),('ROAD',7),('RAILING',7),('WING_WALL',7),('CURTAIN_WALL',7),('LEVELS',8),('SECTION_MARKS',7)]:
+        doc.layers.new(name,dxfattribs={'color':col})
+    def poly(p,pts,layer='BOX',close=False):
+        return p.add_lwpolyline(pts,close=close,dxfattribs={'layer':layer})
+    def rect(p,x,y,ww,hh,layer='BOX'):
+        return poly(p,[(x,y),(x+ww,y),(x+ww,y+hh),(x,y+hh)],layer,True)
+    def line(p,x,y,xx,yy,layer='BOX'):
+        p.add_line((x,y),(xx,yy),dxfattribs={'layer':layer})
+    def text(p,x,y,s,h=150,center=False,layer='ANNOTATION'):
+        e=p.add_text(str(s),dxfattribs={'height':h,'layer':layer}); e.set_placement((x,y),align=TextEntityAlignment.MIDDLE_CENTER if center else TextEntityAlignment.LEFT)
+    def dim(p,x1,x2,y,base):
+        d=p.add_linear_dim(base=(x1,y),p1=(x1,base),p2=(x2,base),angle=0,dimstyle='Standard',override={'dimtxt':140,'dimasz':100,'dimdec':0},dxfattribs={'layer':'DIMENSIONS'});d.render()
+    def vdim(p,y1,y2,x,base):
+        d=p.add_linear_dim(base=(x,y1),p1=(base,y1),p2=(base,y2),angle=90,dimstyle='Standard',override={'dimtxt':140,'dimasz':100,'dimdec':0},dxfattribs={'layer':'DIMENSIONS'});d.render()
+    def hatch_rect(x,y,ww,hh):
+        # Native hatch, not an image; ANSI pattern is symbolic stone fill.
+        h=m.add_hatch(dxfattribs={'layer':'APRON_HATCH'})
+        h.set_pattern_fill('AR-CONC',scale=25)
+        h.paths.add_polyline_path([(x,y),(x+ww,y),(x+ww,y+hh),(x,y+hh)],is_closed=True)
+    def leader(x,y,tx,ty,label):
+        line(m,x,y,tx,ty,'ANNOTATION'); text(m,tx+80,ty+50,label,135)
+    # Plan: longitudinal axis is horizontal as in reference Sheet 1.
+    rect(m,0,-W/2,L,W)
+    for y in (-B/2,B/2): line(m,0,y,L,y)
+    line(m,-u-a-500,0,L+v+c+500,0,'CENTERLINE')
+    line(m,L/2,-max(bl,br)/2-500,L/2,max(bl,br)/2+500,'CENTERLINE')
+    for end,sgn,run,breadth,apron in [(0,-1,u,bl,a),(L,1,v,br,c)]:
+        ex=end+sgn*run
+        for side in (-1,1): line(m,end,side*W/2,ex,side*breadth/2,'SITE_REFERENCE')
+        line(m,ex,-breadth/2,ex,breadth/2,'SITE_REFERENCE')
+        rect(m,min(ex,ex+sgn*apron),-breadth/2,apron,breadth,'SITE_REFERENCE')
+        hatch_rect(min(ex,ex+sgn*apron),-breadth/2,apron,breadth)
+        text(m,ex+sgn*apron/2,0,'FLEXIBLE APRON',180,True)
+        # Wing wall axes only: wall thickness and footing not established.
+        for side in (-1,1):
+            line(m,end,side*W/2,ex,side*breadth/2,'WING_WALL')
+        text(m,(end+ex)/2,breadth/2+150,'U-TYPE WING WALL (AXIS)',135,True)
+        text(m,ex,-breadth/2-230,'CURTAIN WALL LOCATION - REVIEW',120,True)
+        dim(m,min(ex,end),max(ex,end),max(bl,br)/2+450, max(bl,br)/2)
+        dim(m,min(ex,ex+sgn*apron),max(ex,ex+sgn*apron),max(bl,br)/2+450,max(bl,br)/2)
+    pedestal=gad.railing_pedestal_width_m*1000
+    if 2*pedestal>=L: raise ValueError('Pedestals exceed box length')
+    for x in (0,L-pedestal):
+        rect(m,x,-W/2,pedestal,W,'RAILING')
+        line(m,x+pedestal/2,-W/2,x+pedestal/2,W/2,'RAILING')
+    dim(m,pedestal,L/2,-max(bl,br)/2-300,-W/2)
+    dim(m,L/2,L-pedestal,-max(bl,br)/2-300,-W/2)
+    for x,label in ((-u-a-250,'A'),(L+v+c+250,'A')):
+        m.add_circle((x,0),180,dxfattribs={'layer':'SECTION_MARKS'});text(m,x,0,label,150,True)
+    for y in (-max(bl,br)/2-500,max(bl,br)/2+1000):
+        m.add_circle((L/2,y),180,dxfattribs={'layer':'SECTION_MARKS'});text(m,L/2,y,'C',150,True)
+    text(m,-u/2,-W/2-300,'D/S',170,True);text(m,L+v/2,-W/2-300,'U/S',170,True)
+    dim(m,0,L,max(bl,br)/2+450,W/2)
+    vdim(m,-W/2,W/2,L+350,L)
+    text(m,L/2,-max(bl,br)/2-700,'PLAN - SITE OUTLINES SUBJECT TO REVIEW',180,True)
+    # Separate longitudinal section with explicit invert levels; constant input height.
+    oy=max(bl,br)/2+6500+b
+    il0=oy; il1=oy+1000*(gad.invert_level_right_m-gad.invert_level_left_m)
+    poly(m,[(0,il0-b),(L,il1-b),(L,il1),(0,il0)],close=True)
+    poly(m,[(0,il0+H),(L,il1+H),(L,il1+H+t),(0,il0+H+t)],close=True)
+    for x,y in [(0,il0),(L,il1)]: line(m,x,y,x,y+H,'SITE_REFERENCE')
+    pcc=gad.pcc_bedding_mm
+    poly(m,[(0,il0-b-pcc),(L,il1-b-pcc),(L,il1-b),(0,il0-b)],'PCC',True)
+    road=[(0,oy+1000*(gad.frl1_m-gad.invert_level_left_m)),(L/2,oy+1000*(gad.frl2_m-gad.invert_level_left_m)),(L,oy+1000*(gad.frl3_m-gad.invert_level_left_m))]
+    poly(m,road,'ROAD')
+    # Road profile uses supplied levels; pavement thickness is not assumed.
+    # Wing elevations are site reference outlines, not a designed wall profile.
+    for end,sgn,run,apron,il,wh in ((0,-1,u,a,il0,gad.wingwall_left_height_m),(L,1,v,c,il1,gad.wingwall_right_height_m)):
+        ex=end+sgn*run
+        top=il+1000*wh
+        poly(m,[(end,il),(ex,il),(ex,il+1000),(end,top)],'WING_WALL',True)
+        # 1000 mm end height is shown on reference Sheet 1; verify site tie-in.
+        line(m,ex,il,ex+sgn*apron,il,'SITE_REFERENCE')
+        leader((end+ex)/2,(il+top)/2,(end+ex)/2,top+300,'U-TYPE WING WALL - REVIEW')
+        # Curtain location only; exact vertical set-out not supplied.
+        line(m,ex,il-400,ex,il+150,'CURTAIN_WALL')
+        leader(ex,il,ex+sgn*apron*.35,il-600,'CURTAIN WALL - SEE SHEET 2')
+        text(m,ex+sgn*apron/2,il+150,'FLEXIBLE APRON',145,True)
+    for x,y in (road[0],road[-1]):
+        # Reference railing symbol; height not used as a fabrication dimension.
+        leader(x,y,x+(350 if x==0 else -1600),y+750,'MS RAILING / PEDESTAL - DETAIL PENDING')
+    leader(L*.35,il0-b-pcc,L*.20,il0-b-pcc-350,f'{pcc:g} mm PCC BEDDING')
+    text(m,L/2,il0+H/2,'CLEAR OPENING',180,True)
+    for j,(x,y) in enumerate(road,1): text(m,x,y+220,f'FRL{j} {getattr(gad,f"frl{j}_m"):.3f}',150,True)
+    for x,y,n,z in [(0,il0,1,gad.invert_level_left_m),(L,il1,2,gad.invert_level_right_m)]: text(m,x,y+200,f'IL-{n} {z:.3f}',140)
+    gl=oy+1000*(gad.ground_level_m-gad.invert_level_left_m)
+    line(m,-u-a,gl,L+v+c,gl,'SITE_REFERENCE'); text(m,-u-a,gl+150,'G.L. (site input)')
+    dim(m,0,L,max(y for x,y in road)+650, max(y for x,y in road))
+    vdim(m,il0,il0+H,-450,0); vdim(m,il0-b,il0,-450,0)
+    vdim(m,il0+H,il0+H+t,-450,0)
+    text(m,L/2,oy-b-pcc-650,'SECTION A-A - SITE TIE-INS FOR REVIEW',180,True)
+    # Paper layout references the model using independent viewports.
+    sheet=doc.layouts.new('GAD A2'); sheet.page_setup(size=(594,420),margins=(0,0,0,0),units='mm')
+    rect(sheet,8,8,578,404,'SHEET')
+    xmin=-u-a-700; xmax=L+v+c+700; cx=(xmin+xmax)/2
+    def viewport(center,size,cy,span):
+        vh=max(span,(xmax-xmin)*size[1]/size[0])*1.06
+        sheet.add_viewport(center=center,size=size,view_center_point=(cx,cy),view_height=vh,dxfattribs={'layer':'SHEET','flags':16384})
+    viewport((202,315),(376,155),oy+H/2,max(H+4500,abs(gl-oy)+H+3000))
+    viewport((202,171),(376,128),0,max(bl,br)+2000)
+    text(sheet,400,390,'KEY PLAN / SITE DATA',3.5)
+    for i,s in enumerate([f'Chainage: {gad.chainage}',f'Flow direction: {gad.flow_direction}', 'Key plan alignment not supplied.', 'Wing wall axes and elevations only.', 'Curtain wall set-out pending.', 'Apron hatch symbolic; review only.', 'Not for construction.']): text(sheet,400,380-i*7,s,2.8)
+    rect(sheet,14,52,566,36,'SHEET')
+    for i,(k,val) in enumerate([('Length',L),('Clear span',B),('Clear height',H),('Side wall',w),('Top slab',t),('Base slab',b)]):
+        x=14+i*94; line(sheet,x,52,x,88,'SHEET'); text(sheet,x+4,77,k,3); text(sheet,x+4,65,f'{val:g} mm',3.5)
+    rect(sheet,14,14,566,32,'SHEET'); text(sheet,20,34,'GENERAL ARRANGEMENT DRAWING OF BOX CULVERT',4); text(sheet,20,22,f'CH. {gad.chainage} | SHEET 1 OF 3 | A2 | ENGINEERING REVIEW',3)
+    text(sheet,440,34,'MODEL: 1:1 mm',3); text(sheet,440,22,'Approval: pending',3)
+    doc.set_modelspace_vport(height=oy+H+max(bl,br)/2+3000,center=(cx,(oy+H-max(bl,br)/2)/2))
+    out=StringIO(); doc.write(out); return out.getvalue().encode('utf-8')
+
+# Complete editable presentation sheet for CAD viewers without layout support.
+export_sheet1_measured_dxf = export_sheet1_dxf
+
+def export_sheet1_dxf(inputs: CulvertInputs, gad: GADInputs | None = None) -> bytes:
+    import ezdxf
+    from ezdxf import bbox
+    from ezdxf.enums import TextEntityAlignment
+    from io import StringIO
+    class SheetPen(_Pen):
+        def txt(self,x,y,text,size=8,bold=False,align='left',color=(.15,.19,.23),angle=0,layer='TEXT'):
+            self.items.append(('aligned',layer,(x,y,str(text),size,angle,align)))
+    p=SheetPen(None,record=True)
+    _draw(p,inputs,gad or GADInputs())
+    doc=ezdxf.new('R2010'); doc.units=4; m=doc.modelspace(); f=_PAPER_TO_MM
+    for op,layer,a in p.items:
+        if layer not in doc.layers: doc.layers.new(layer,dxfattribs={'color':2 if layer=='DIMENSIONS' else 7})
+        attr={'layer':layer}
+        if op=='line':
+            x,y,u,v=a; m.add_line((x*f,y*f),(u*f,v*f),dxfattribs=attr)
+        elif op=='path':
+            pts,closed=a; m.add_lwpolyline([(x*f,y*f) for x,y in pts],close=closed,dxfattribs=attr)
+        elif op=='circle':
+            x,y,r=a; m.add_circle((x*f,y*f),r*f,dxfattribs=attr)
+        elif op=='aligned':
+            x,y,t,size,angle,align=a
+            m.add_text(t,dxfattribs={**attr,'height':size*f,'rotation':angle}).set_placement((x*f,y*f),align={'left':TextEntityAlignment.LEFT,'center':TextEntityAlignment.CENTER,'right':TextEntityAlignment.RIGHT}[align])
+    m.add_text('PAPER-SCALE REVIEW SHEET - USE FULL-SIZE EXPORT FOR MEASUREMENTS',dxfattribs={'height':2.4,'insert':(26,3)})
+    ext=bbox.extents(m); doc.set_modelspace_vport(height=max(ext.size.y,ext.size.x/1.35)*1.10,center=(ext.center.x,ext.center.y))
+    out=StringIO(); doc.write(out); return out.getvalue().encode('utf-8')

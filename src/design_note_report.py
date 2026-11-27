@@ -134,7 +134,7 @@ def build_design_note_pdf(ctx):
     mcols=[('Member','Location'),('Location','Section'),('Face','Face')]+[(f'{a} {b}',b) for a,bs in [('ULS',('Normal','LL','Factor load')),('Rare',('Normal','LL','Total')),('Quasi',('Normal','LL','Total'))] for b in bs]
     table(ctx['moment_result']['rows'],mcols,{k:'.4f' for k,_ in mcols[3:]},[('Location',0,2),('ULS — Total BM (t-m/m)',3,5),('Rare Combination — Total BM (t-m/m)',6,8),('Quasi-Permanent — Total BM (t-m/m)',9,11)])
     title('Design shear force',True); table(ctx['shear_result']['rows'],[('Member','Location'),('Location','Section'),('Face','Face'),*cols('Normal','LL','Total')],{k:'.4f' for k in ('Normal','LL','Total')},[('Location',0,2),('ULS — Total SF (t/m)',3,5)])
-    title('Flexural R/F detail of RCC Box — trial schedule',True)
+    title('Flexural R/F detail of RCC Box',True)
     rf=[('Component','Component'),('Section','Section'),('Position','Location'),('Calculated Inner (mm²/m)','Reinforcement Provided at inner face (mm²/m)'),('Calculated Outer (mm²/m)','Reinforcement Provided at outer face (mm²/m)')]
     for face,count in [('Inner',2),('Outer',3)]:
         for j in range(1,count+1): rf.extend([(f'{face} Bar-{j} (mm)',f'Bar-{j}'),(f'{face} Spacing-{j} (mm)','Spacing')])

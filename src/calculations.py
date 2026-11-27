@@ -1850,7 +1850,25 @@ def calculate_uls_shear_strength_table(
         member=expected_members[i]
         if force['Member'] != member or steel_row['Component'] != member:
             raise ValueError(f'Shear and reinforcement row {i + 1} do not match {member}')
-        d_mm=dc['rows'][dc_i][depth_col]*1000
+        # Use the actual longitudinal bars on the mapped tension face.
+        # Largest diameter is a conservative nominal single-layer radius;
+        # multilayer centroids and link-cover deductions require detailing review.
+        diameters = [steel_row[f'{steel_face} Bar-{k} (mm)']
+                     for k in range(1, 4 if steel_face == 'Outer' else 3)]
+        active = [dia for dia in diameters if dia is not None and dia > 0]
+        if not active:
+            raise ValueError(f'Shear row {i + 1}: no active longitudinal bars on {steel_face} face')
+        material = dc['values']
+        if member == 'Top Slab':
+            cover = material['top_slab_top_cover_mm' if steel_face == 'Outer' else 'top_slab_bottom_cover_mm']
+        elif member == 'Bottom Slab':
+            cover = material['bottom_slab_cover_mm']
+        else:
+            cover = material['side_wall_outer_cover_mm' if steel_face == 'Outer' else 'side_wall_inner_cover_mm']
+        total_col = depth_col.replace('Effective depth', 'Total depth', 1)
+        d_mm = dc['rows'][dc_i][total_col] * 1000.0 - cover - max(active) / 2.0
+        if not math.isfinite(d_mm) or d_mm <= 0:
+            raise ValueError(f'Shear row {i + 1}: invalid effective depth from current bars and cover')
         as_mm2=steel_row[f'Calculated {steel_face} (mm²/m)']
         shear_tf_m=abs(force['Total'])
         strength=shear_without_stirrups(

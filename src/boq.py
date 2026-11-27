@@ -34,11 +34,24 @@ def calculate_boq(inputs: CulvertInputs, bbs_results: dict | None = None,
     extra=set(quantity_overrides)-ids
     if extra:
         raise ValueError('Unknown BOQ reference item id(s): '+', '.join(sorted(extra)))
+    live_concrete = {
+        "boq-74": geom["bottom_slab_volume_m3"],
+        "boq-75": geom["walls_volume_m3"],
+        "boq-76": 0.0,
+        "boq-83": geom["haunch_volume_m3"] / 2,
+        "boq-84": geom["haunch_volume_m3"] / 2,
+        "boq-119": geom["top_slab_volume_m3"],
+    }
+    if inputs.clear_height_m > 5:
+        live_concrete = {}  # height classification needs separate site/design data
     items=[]
     for r in ref['items']:
         row=dict(r)
         original=float(row['reference_quantity'])
-        if r['id'] in quantity_overrides:
+        if r['id'] in live_concrete:
+            row['quantity']=live_concrete[r['id']]
+            row['quantity_source']='Live box geometry'
+        elif r['id'] in quantity_overrides:
             q=float(quantity_overrides[r['id']])
             if not math.isfinite(q) or q < 0:
                 raise ValueError(f"Invalid quantity for {r['id']}")
@@ -53,6 +66,8 @@ def calculate_boq(inputs: CulvertInputs, bbs_results: dict | None = None,
        {'description':'Four internal triangular haunches concrete','unit':'m³','quantity':geom['haunch_volume_m3']},
     ]
     core.append({'description':'TOTAL single-cell culvert box concrete', 'unit':'m³','quantity':geom['concrete_volume_m3']})
+    if bbs_results is not None and bbs_results.get('total_steel_t') is None:
+        bbs_results = None
     if bbs_results is not None:
         core.append({'description':'Bar-by-bar scheduled reinforcement incl. allowance',
                      'unit':'t','quantity':bbs_results['total_steel_t']})
@@ -73,7 +88,7 @@ def calculate_boq(inputs: CulvertInputs, bbs_results: dict | None = None,
       inputs.haunch_count==4
     )
     if not geometry_is_reference:
-        flags.append('Input geometry differs from reference: only core concrete volumes update dynamically. Other BOQ rows are cached or manual.')
+        flags.append('Input geometry differs from reference: Main-box concrete volumes update dynamically; other site-work rows are cached or manual.')
     return {
       'status':'CORE GEOMETRY DYNAMIC; GENERAL BOQ REFERENCE/MANUAL ONLY',
       'core_quantities':core, 'reference_items':items,
@@ -102,6 +117,8 @@ def boq_excel_style_schedule(inputs: CulvertInputs) -> dict:
     rather than fabricated calculations.
     """
     inputs.validate()
+    if inputs.clear_height_m > 5:
+        raise ValueError('Above-5m classification requires verified structure/site elevations; this schedule supports the reference up-to-5m arrangement.')
     geom = calculate_geometry(inputs).to_dict()
     length = inputs.length_m
     ext_width = geom['external_width_m']
@@ -128,9 +145,9 @@ def boq_excel_style_schedule(inputs: CulvertInputs) -> dict:
                      inputs.haunch_width_m, inputs.haunch_height_m,
                      haunches_each_end * haunch_each_m3)
     substructure_total = sum(r['quantity_m3'] for r in (bottom, side, middle, bottom_haunch, top_haunch))
-    top_slab = row('(i) Top Slab (Upto 5m height)', 1, ext_width, length,
+    top_slab = row('Top Slab (Upto 5m height)', 1, ext_width, length,
                    inputs.top_slab_thickness_m, geom['top_slab_volume_m3'], unit='cum')
-    top_slab_above = row('(ii) Top Slab (Above 5m height)', 1, 0.0, 0.0, 0.0, 0.0, unit='cum',
+    top_slab_above = row('Top Slab (Above 5m height)', 1, 0.0, 0.0, 0.0, 0.0, unit='cum',
                          source='Worksheet reference placeholder')
 
     # These rows are zeros in the supplied screenshot.  We deliberately do not
@@ -150,21 +167,19 @@ def boq_excel_style_schedule(inputs: CulvertInputs) -> dict:
     rows = [
         {'kind':'section','description':'SUBSTRUCTURE'},
         {'kind':'item_heading', 'sl_no':'3', 'spec':'1500, 1700 & 2200',
-         'description':'R.C.C. grade M 35 in Sub Structure complete as per Dwg & Tech Specification.'},
+         'description':f'R.C.C. grade {inputs.concrete_grade} in Sub Structure complete as per Dwg & Tech Specification.'},
         {'kind':'subsection','description':'Upto 5m Height.'},
         bottom, side, middle, bottom_haunch, top_haunch,
-        {'kind':'subtotal','description':'Sub-Total =', 'quantity_m3':substructure_total},
+        {'kind':'subtotal','description':'Sub-Total =', 'unit':'Cum', 'quantity_m3':substructure_total},
         {'kind':'subsection','description':'Above 5m Height.'},
         *reference_zero_rows,
-        {'kind':'subtotal','description':'Sub-Total =', 'quantity_m3':0.0},
+        {'kind':'subtotal','description':'Sub-Total =', 'unit':'Cum', 'quantity_m3':0.0},
         {'kind':'section','description':'SUPERSTRUCTURE'},
         {'kind':'item_heading','sl_no':'8','spec':'1500 & 1600 in 1700',
          'description':('Providing and laying reinforced cement concrete in superstructure '
                         'complete as per drawing and technical specifications Clauses '
-                        '800, 1205.4 and 1205.5. RCC M-35')},
+                        f'800, 1205.4 and 1205.5. RCC {inputs.concrete_grade}')},
         top_slab, top_slab_above,
-        {'kind':'grand_total','description':'TOTAL RCC CONCRETE',
-         'quantity_m3':substructure_total + geom['top_slab_volume_m3']},
     ]
     return {
         'rows':rows,
@@ -322,3 +337,41 @@ def calculate_editable_boq(rows: list[dict]) -> dict:
         'superstructure_m3': superstructure,
         'total_concrete_m3': substructure + superstructure,
     }
+
+
+def boq_display_rows(schedule):
+    """Ten columns in the source schedule, with no reference-only comparison columns."""
+    fields = ('sl_no','spec','description','unit','nos','length_m','width_m','depth_m','area_m2','quantity_m3')
+    headings = ('Sl. No','Ref. to MoRT','Item Description','Unit','Nos','Length (m)','Width (m)','Depth/Height (m)','AREA (Sqm.)','Quantity')
+    return [dict(zip(headings, (row.get(f) for f in fields))) for row in schedule['rows']]
+
+
+def boq_schedule_csv(schedule):
+    import csv, io
+    rows = boq_display_rows(schedule)
+    buf = io.StringIO(newline='')
+    writer = csv.DictWriter(buf, fieldnames=list(rows[0]))
+    writer.writeheader(); writer.writerows(rows)
+    return buf.getvalue().encode('utf-8-sig')
+
+
+def boq_schedule_html(schedule):
+    from html import escape
+    rows = boq_display_rows(schedule)
+    def cell(key, value):
+        if value is None: return ''
+        if isinstance(value,(int,float)):
+            return str(int(value)) if key == 'Nos' else f'{value:.2f}' if key == 'Quantity' else f'{value:.3f}'
+        return escape(str(value))
+    html = ['<div style="overflow-x:auto"><table style="border-collapse:collapse;width:100%;font-size:0.85rem">', '<thead><tr>']
+    for key in rows[0]: html.append(f'<th style="background:#fbd2aa;color:#111;border:1px solid #777;padding:6px">{escape(key)}</th>')
+    html.append('</tr></thead><tbody>')
+    for raw,row in zip(schedule['rows'],rows):
+        kind = raw['kind']
+        style = 'background:#fbd2aa;color:#111;font-weight:700;' if kind=='section' else 'font-weight:700;' if kind in ('subtotal','subsection','item_heading') else ''
+        html.append(f'<tr style="{style}">')
+        for key,value in row.items():
+            align = 'left' if key=='Item Description' else 'right' if key in ('Length (m)','Width (m)','Depth/Height (m)','AREA (Sqm.)','Quantity') else 'center'
+            html.append(f'<td style="border:1px solid #888;padding:4px;text-align:{align}">{cell(key,value)}</td>')
+        html.append('</tr>')
+    return ''.join(html)+' </tbody></table></div>'
